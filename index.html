@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>스윙 박자</title>
+<style>
+  :root {
+    --bg:#16181d; --card:#262b34; --card2:#303641; --line:#3a3f4a; --yellow:#ffd644;
+    --t0:#f2f1ec; --t1:#c9cdd6; --t2:#8f929b; --t3:#5a5e68;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--t1);
+         font-family:-apple-system,system-ui,sans-serif; height:100dvh;
+         display:flex; flex-direction:column; overflow:hidden; }
+  .num { font-variant-numeric:tabular-nums; }
+  button { background:var(--card); border:1px solid var(--line); color:var(--t1);
+           border-radius:12px; font-size:15px; padding:12px 0; flex:1; font-family:inherit; }
+  button.on { border-color:var(--yellow); color:var(--yellow); }
+  button:disabled { opacity:.4; }
+  button.primary { background:var(--t0); color:var(--bg); border:0; font-weight:700; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  input[type=range] { width:100%; accent-color:var(--yellow); }
+
+  /* ── 상단: 제목(탭→곡 정보) · BPM·길이 · 카운트 표시 3단 ── */
+  header { padding:10px 16px 2px; display:flex; align-items:center; gap:10px; }
+  #titleBox { flex:1; min-width:0; }
+  #songTitle { font-size:16px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #songTitle::after { content:' ›'; color:var(--t2); font-weight:400; }
+  #songSub { font-size:12px; color:var(--t2); margin-top:2px; }
+  #seg { display:flex; gap:2px; padding:3px; border-radius:11px; background:var(--card); flex-shrink:0; }
+  #seg button { flex:none; height:30px; padding:0 9px; border:0; border-radius:8px; font-size:12px; background:transparent; color:var(--t2); }
+  #seg button.on { background:var(--t0); color:var(--bg); font-weight:700; }
+
+  /* ── 첫 화면 ── */
+  #dropZone { flex:1; display:flex; flex-direction:column; align-items:center;
+              justify-content:center; gap:14px; color:var(--t2); padding:24px; text-align:center; }
+  #dropZone button { flex:none; padding:14px 26px; background:var(--yellow); color:var(--bg);
+                     border:0; font-weight:700; font-size:17px; }
+  #progress { font-size:14px; color:var(--t2); min-height:20px; }
+
+  /* ── HUD: 진행 · 큰 숫자 · 1~8 칸 ── */
+  #hud { text-align:center; padding:2px 16px 4px; }
+  #progressLine { font-size:13px; color:var(--t2); min-height:18px; }
+  #progressLine b { color:var(--t0); font-size:16px; font-weight:600; }
+  #bigCount { font-size:110px; font-weight:600; line-height:.9; color:#fff; transition:transform .06s; }
+  #bigCount.idle { color:var(--t3); }
+  #bigCount.accent { transform:scale(1.1); }
+  #cells { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:6px; margin-top:6px; }
+  #cells div { height:36px; border-radius:8px; font-size:20px; font-weight:600; display:flex;
+               align-items:center; justify-content:center; background:var(--card); color:var(--t2); }
+  #cells div.acc { color:var(--yellow); box-shadow:inset 0 -3px 0 var(--yellow); }
+  #cells div.cur { background:#fff; color:var(--bg); }
+  #cells div.cur.acc { box-shadow:inset 0 -3px 0 var(--yellow); }
+
+  /* ── 타임라인 ── */
+  #tlHead { display:flex; justify-content:space-between; align-items:baseline; padding:8px 16px 4px; font-size:11px; color:var(--t2); }
+  #loopLabel { color:var(--yellow); font-weight:700; margin-left:8px; }
+  #tlTime { font-size:13px; }
+  #timelineWrap { flex:1; overflow-y:auto; padding:0 12px; position:relative; }
+  #timeline { position:relative; width:100%; }
+  #wave { width:100%; display:block; }
+  #cursor { position:absolute; width:3px; background:var(--yellow); pointer-events:none; display:none; }
+  #rowHl { position:absolute; left:0; right:0; background:rgba(255,214,68,.05); pointer-events:none; display:none; }
+  #eightHl { position:absolute; background:rgba(255,214,68,.22); border-top:2px solid var(--yellow);
+             border-bottom:2px solid var(--yellow); pointer-events:none; display:none; }
+
+  /* ── 컨트롤: 기본 줄(이전·반복·재생·속도·다음) + 접히는 줄(추가·삭제·카운트음·짝수 강세) ── */
+  #controls { padding:0 12px calc(8px + env(safe-area-inset-bottom)); }
+  #ctlHandle { display:flex; align-items:center; justify-content:center; gap:6px; height:22px; color:var(--t2); font-size:11px; }
+  #ctlGrid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); grid-template-rows:60px; gap:8px; }
+  #ctlGrid.expanded { grid-template-rows:56px 56px; }
+  #ctlGrid button { padding:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-size:11px; }
+  #ctlGrid button svg { width:24px; height:24px; }
+  #ctlGrid button .big { font-size:20px; font-weight:600; line-height:1; }
+  #ctlGrid .r2 { display:none; }
+  #ctlGrid.expanded .r2 { display:flex; }
+  #btnPlay { grid-column:3; background:var(--t0); color:var(--bg); border:0; border-radius:14px; font-size:26px; }
+  #ctlGrid.expanded #btnPlay { grid-row:1 / span 2; }
+  #btnPrev { grid-column:1; grid-row:1; } #btnLoop { grid-column:2; grid-row:1; }
+  #btnSpeed { grid-column:4; grid-row:1; } #btnNext { grid-column:5; grid-row:1; }
+  #btnFlagAdd { grid-column:1; grid-row:2; } #btnFlagDel { grid-column:2; grid-row:2; }
+  #btnClick { grid-column:4; grid-row:2; } #btnAccent { grid-column:5; grid-row:2; }
+
+  /* ── 탭바 ── */
+  #tabBar { display:grid; grid-template-columns:repeat(3,1fr); height:64px; border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+  .tab { display:flex; flex-direction:column; align-items:center; justify-content:center;
+         gap:4px; color:var(--t2); font-size:11px; font-weight:500; }
+  .tab.on { color:#fff; font-weight:700; }
+
+  /* ── 학습 · 목록 페이지 ── */
+  .page { flex:1; overflow-y:auto; padding:0 16px 12px; display:flex; flex-direction:column; }
+  .pageHead { display:flex; align-items:center; justify-content:space-between; height:56px; }
+  .pageTitle { font-size:20px; font-weight:700; color:#fff; }
+  .secLabel { font-size:13px; color:var(--t2); margin:18px 0 8px; }
+  .card { display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:16px; background:var(--card);
+          border:1px solid var(--line); margin-bottom:10px; }
+  .card .nm { font-size:16px; font-weight:700; color:#fff; }
+  .card .ds { font-size:13px; color:var(--t2); margin-top:3px; }
+  .card .chev { margin-left:auto; color:var(--t2); font-size:20px; }
+  .card > div:first-child { flex:1; min-width:0; }
+  #testCard { padding:20px; border-radius:18px; background:var(--yellow); color:var(--bg); margin-top:4px; }
+  #testCard .nm { font-size:18px; font-weight:700; }
+  #testCard .ds { font-size:13px; opacity:.8; margin-top:4px; }
+  #testCard button { margin-top:14px; height:52px; border-radius:12px; background:var(--bg); color:var(--t0); border:0; font-weight:700; width:100%; }
+  .recRow { display:flex; justify-content:space-between; align-items:baseline; height:30px; font-size:14px; }
+  .recRow .v { font-size:16px; font-weight:600; color:var(--t1); }
+  .iconBtn { flex:none; width:38px; height:38px; padding:0; border-radius:19px; display:flex; align-items:center; justify-content:center; }
+  .pillBtn { flex:none; height:38px; padding:0 14px; border-radius:19px; font-size:14px; font-weight:700; }
+  .listHead, .songRow { display:grid; grid-template-columns:24px minmax(0,1fr) 76px 44px; column-gap:12px; align-items:center; }
+  .listHead { padding:6px 14px; font-size:11px; color:var(--t2); }
+  .listHead .r, .songRow .r { text-align:right; }
+  .songRow { height:60px; padding:0 14px; border-radius:14px; background:var(--card); border:1px solid var(--line); margin-bottom:8px; }
+  .songRow .nm { font-size:15px; font-weight:500; color:var(--t0); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .songRow .mt { font-size:14px; color:var(--t1); }
+  .songRow.busy .nm { color:var(--t3); }
+  .songRow .busyTag { font-size:12px; color:var(--t2); white-space:nowrap; display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+  .spin { width:14px; height:14px; border-radius:7px; border:2px solid var(--line); border-top-color:var(--yellow); animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .chk { width:24px; height:24px; border-radius:6px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; }
+  .chk.on { background:var(--yellow); border-color:var(--yellow); color:var(--bg); font-weight:800; font-size:16px; }
+  #listActions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:auto; padding-top:10px; }
+  #listActions button { height:52px; }
+  #btnPlaySel { background:var(--yellow); color:var(--bg); border:0; font-weight:700; }
+
+  /* ── 시트 ── */
+  .sheet { position:fixed; left:0; right:0; bottom:0; background:var(--card);
+           border-top:1px solid var(--line); border-radius:20px 20px 0 0;
+           padding:16px 16px calc(16px + env(safe-area-inset-bottom)); z-index:10;
+           max-height:82dvh; overflow-y:auto; }
+  .sheet h3 { margin:4px 0 10px; font-size:16px; color:#fff; }
+  .sheet .label { font-size:12px; color:var(--t2); margin:10px 0 4px; }
+  .sheet .secHead { display:flex; justify-content:space-between; align-items:baseline; margin-top:14px; }
+  .sheet .secHead b { font-size:13px; color:var(--t0); }
+  .sheet .secHead span { font-size:12px; color:var(--t2); }
+  .warn { color:#ff9b6a; font-size:13px; line-height:1.5; }
+  .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .stats div { padding:12px; border-radius:12px; background:var(--bg); }
+  .stats .k { font-size:11px; color:var(--t2); }
+  .stats .v { font-size:22px; font-weight:600; color:var(--t1); line-height:1; margin-top:4px; }
+  .stats .v.s { font-size:16px; }
+  #speedBig { font-size:84px; font-weight:600; text-align:center; color:#fff; line-height:.9; }
+  #speedBig span { font-size:34px; color:var(--t2); }
+  #speedPresets { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px; }
+  #speedPresets button { height:56px; font-size:22px; font-weight:600; }
+  #speedPresets button.on { background:var(--yellow); color:var(--bg); border-color:var(--yellow); }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .chips button { flex:none; padding:8px 14px; border-radius:18px; font-size:14px; }
+  #flagName { width:100%; font-size:16px; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--bg); color:#fff; font-family:inherit; }
+  .dim { position:fixed; inset:0; background:#0b0c0f; opacity:.6; z-index:9; }
+
+  /* ── 전체 화면 오버레이(게임·청음·두드려 재기·결과) ── */
+  .overlay { position:fixed; inset:0; background:var(--bg); z-index:30; display:flex; flex-direction:column;
+             padding-bottom:env(safe-area-inset-bottom); }
+  .ovTop { display:flex; align-items:center; height:60px; padding:0 12px; gap:12px; }
+  .ovClose { flex:0 0 44px; height:40px; padding:0; font-size:17px; }
+  .ovTitle { font-weight:700; color:#fff; flex:1; text-align:center; }
+  .ovRight { flex:0 0 44px; text-align:right; color:var(--t2); font-size:15px; }
+  .lsBars { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; padding:0 16px; }
+  .lsBars div { height:4px; border-radius:2px; background:var(--card2); }
+  .lsBars div.done { background:var(--yellow); } .lsBars div.cur { background:#fff; }
+  .lsBody { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:0 20px; text-align:center; }
+  .lsQ { font-size:20px; font-weight:700; color:#fff; }
+  .lsHint { font-size:13px; color:var(--t2); line-height:1.6; }
+  #lsWave { width:100%; height:36px; border-radius:4px; }
+  .lsPlay { flex:none; width:96px; height:96px; border-radius:48px; background:var(--t0); color:var(--bg); border:0; font-size:22px; font-weight:700; }
+  .lsDemo { flex:none; width:100%; max-width:340px; height:56px; font-size:16px; font-weight:600; background:var(--card2); border:0; }
+  .lsFeedback { min-height:22px; font-size:15px; font-weight:700; }
+  .lsAnswers { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 16px 20px; }
+  .lsAnswers button { height:64px; font-size:17px; font-weight:700; background:var(--card2); border:0; }
+  .bnHint { text-align:center; color:var(--t1); font-size:15px; line-height:1.6; padding:10px 20px 0; }
+  .bnHint b { color:#fff; }
+  .bnSpeed { display:flex; align-items:center; justify-content:center; gap:16px; padding:10px 0 2px; }
+  .bnSpeed button { flex:0 0 44px; width:44px; height:44px; padding:0; border-radius:22px; font-size:24px; font-weight:700; background:var(--card2); border:0; color:var(--t0); }
+  .bnSpeed > div { text-align:center; min-width:60px; }
+  .bnSpeed #bnSpeedV { font-size:22px; font-weight:600; color:#fff; }
+  .bnSpeed .bnSpeedLbl { font-size:11px; color:var(--t2); }
+  .bnStrip { display:grid; grid-template-columns:repeat(8,1fr); gap:5px; padding:12px 16px 4px; max-width:360px; margin:0 auto; width:100%; box-sizing:border-box; }
+  .bnDot { height:30px; border-radius:7px; background:var(--card); color:var(--t3); font-size:14px; font-weight:600; display:flex; align-items:center; justify-content:center; }
+  .bnDot.one { color:var(--yellow); box-shadow:inset 0 0 0 1px var(--yellow); }
+  .bnDot.five { color:var(--t0); box-shadow:inset 0 0 0 1px var(--line); }
+  .bnDot.on { background:#fff; color:var(--bg); }
+  .bnDot.one.on { background:var(--yellow); }
+  #bnCanvas { flex:1; touch-action:none; width:100%; }
+  .bnTapHint { text-align:center; color:var(--t3); font-size:12px; padding:6px 0 14px; }
+  .calPad { margin:16px; flex:1; border-radius:20px; background:var(--card2); display:flex; flex-direction:column;
+            align-items:center; justify-content:center; gap:8px; font-size:22px; font-weight:700; color:#fff; touch-action:none; }
+  .calPad .calSub { font-size:13px; color:var(--t1); font-weight:400; }
+  .rsStats { display:flex; flex-direction:column; gap:10px; padding:8px 16px 0; }
+  .rsStat { padding:16px; border-radius:16px; background:var(--card); border:1px solid var(--line); }
+  .rsStat .k { font-size:13px; color:var(--t2); }
+  .rsStat .v { font-size:34px; font-weight:600; color:var(--t1); line-height:1; margin:6px 0; }
+  .rsStat .s { font-size:12px; color:var(--t2); }
+  .rsDefault { margin:22px 16px 0; padding:16px; border-radius:16px; background:var(--yellow); color:var(--bg); }
+  .rsDefault .k { font-size:13px; opacity:.8; } .rsDefault .v { font-size:16px; font-weight:700; margin-top:4px; }
+  .rsBtns { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:auto 16px 20px; }
+  .rsBtns button { height:60px; font-size:16px; font-weight:700; }
+
+  #gameView { z-index:30; }
+  #gameTop { display:flex; align-items:center; height:56px; padding:0 12px; gap:12px; }
+  #gameExit { flex:0 0 44px; height:40px; font-size:17px; padding:0; }
+  #gameLevel { font-weight:700; color:#fff; }
+  #gameCombo { margin-left:auto; color:var(--yellow); font-weight:800; font-size:18px; }
+  #gameCanvas { flex:1; touch-action:none; }
+  #gameResult { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+                background:var(--card); border:1px solid var(--line); border-radius:16px;
+                padding:22px 26px; text-align:center; min-width:240px; }
+  #gameResult .rTitle { font-size:14px; color:var(--t2); }
+  #gameResult .rBig { font-size:52px; font-weight:800; color:var(--yellow); margin:6px 0; }
+  #gameResult .rLine { font-size:14px; color:var(--t1); margin-top:4px; }
+  #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:110px;
+           background:#000c; color:#fff; padding:8px 14px; border-radius:10px;
+           font-size:13px; display:none; z-index:40; max-width:88%; }
+</style>
+</head>
+<body>
+<header hidden id="topBar">
+  <div id="titleBox">
+    <div id="songTitle">곡 제목</div>
+    <div id="songSub" class="num"></div>
+  </div>
+  <div id="seg">
+    <button data-cm="0">끔</button><button data-cm="1" class="on">카운트</button><button data-cm="2">카운트·선</button>
+  </div>
+</header>
+
+<div id="dropZone">
+  <div style="font-size:26px; font-weight:800; color:#fff; line-height:1.35">곡만 넣으세요</div>
+  <div style="font-size:15px; color:var(--t1)">듣고, 세고, 준비하는 건 앱이 합니다</div>
+  <button id="btnOpen">곡 넣기</button>
+  <div id="progress"></div>
+  <div style="font-size:12px; color:var(--t3); line-height:1.7; max-width:340px">
+    여러 곡을 한 번에 골라도 돼요 — 전부 미리 준비해 둘게요.<br>
+    「파일」 앱에 저장된 곡(mp3·wav 등)만 열 수 있어요. 음악 앱 곡은 저작권 잠금이에요.
+  </div>
+  <input type="file" id="fileInput" multiple
+         accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,audio/mpeg,audio/mp4,audio/wav" hidden>
+</div>
+
+<div id="hud" hidden>
+  <div id="progressLine" class="num"></div>
+  <div id="bigCount" class="idle num">–</div>
+  <div id="cells" class="num"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div><div>7</div><div>8</div></div>
+</div>
+
+<div id="tlHead" hidden><div>프레이즈<span id="loopLabel"></span></div><div id="tlTime" class="num"></div></div>
+<div id="timelineWrap" hidden>
+  <div id="timeline">
+    <canvas id="wave"></canvas>
+    <div id="rowHl"></div>
+    <div id="eightHl"></div>
+    <div id="cursor"></div>
+  </div>
+</div>
+
+<div id="learnView" class="page" hidden>
+  <div class="pageHead"><div class="pageTitle">학습</div></div>
+  <div id="testCard">
+    <div class="nm">박자 테스트</div>
+    <div class="ds">청음 8문제 · 박자 맞추기 16박 · 2분</div>
+    <button id="btnTest">시작하기</button>
+  </div>
+  <div class="secLabel">여기서 시작 — 1이 어디인지 모를 때</div>
+  <div class="card" id="btnFind" style="box-shadow:inset 0 0 0 2px var(--yellow)"><div><div class="nm">1 찾기 <span style="font-size:12px; color:var(--yellow); font-weight:400">먼저 이걸로</span></div><div class="ds">힌트 켜서 1을 익히고 → 끄고 음악만 듣고 스스로 찾기 · 곡 전체를 느리게</div></div><div class="chev">›</div></div>
+  <div class="card" id="btnGap"><div><div class="nm">혼자 이어가기</div><div class="ds">소리가 사라져도 같은 박자로 계속 세기 · 돌아올 때 확인</div></div><div class="chev">›</div></div>
+  <div class="secLabel">연습 — 1이 좀 잡히면</div>
+  <div class="card" id="btnListen"><div><div class="nm">청음 <span style="font-size:12px; color:var(--t2); font-weight:400">듣고 가려내기</span></div><div class="ds">「딱」 소리가 노래의 박자에 맞는지 귀로 맞혀요 · 처음엔 예시부터 들려줘요</div></div><div class="chev">›</div></div>
+  <div class="card" data-level="all"><div><div class="nm">박자 맞추기</div><div class="ds">음악에 맞춰 카운트마다 탭</div></div><div class="chev">›</div></div>
+  <div class="card" data-level="even"><div><div class="nm">짝수만</div><div class="ds">2 · 4 · 6 · 8에만 탭</div></div><div class="chev">›</div></div>
+  <div class="card" data-level="ones"><div><div class="nm">1만</div><div class="ds">에이트가 시작될 때만 탭</div></div><div class="chev">›</div></div>
+  <div class="card" data-level="intro"><div><div class="nm">5·6·7·8 들어가기</div><div class="ds">앱이 5·6·7·8을 불러 주면, 오는 1을 잡아요</div></div><div class="chev">›</div></div>
+  <div class="card" data-level="five"><div><div class="nm">5 잡고 1 들어가기</div><div class="ds">귀는 5, 발은 1 — 둘 다 스스로 잡아요</div></div><div class="chev">›</div></div>
+  <div class="secLabel">지난번 결과</div>
+  <div class="card" style="flex-direction:column; align-items:stretch; padding:6px 16px" id="lastResults"></div>
+  <div style="font-size:12px; color:var(--t3); margin-top:4px">5는 준비, 1은 출발 — 5를 잡는 귀가 생기면 아무 곡에나 들어갈 수 있어요</div>
+</div>
+
+<div id="listView" class="page" hidden>
+  <div class="pageHead">
+    <div class="pageTitle">목록</div>
+    <div style="display:flex; gap:8px">
+      <button class="iconBtn" id="btnSettings" aria-label="설정"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path><circle cx="9" cy="7" r="2.5" fill="#262b34"></circle><circle cx="15" cy="12" r="2.5" fill="#262b34"></circle><circle cx="8" cy="17" r="2.5" fill="#262b34"></circle></svg></button>
+      <button class="pillBtn" id="btnAddFiles">＋ 파일 추가</button>
+    </div>
+  </div>
+  <div class="listHead"><div></div><div>곡</div><div class="r">BPM</div><div class="r">길이</div></div>
+  <div id="songList"></div>
+  <div id="listActions"><button id="btnPlayAll">전체 재생</button><button id="btnPlaySel">선택 재생</button></div>
+</div>
+
+<div id="controls" hidden>
+  <div id="ctlHandle">▾ 더보기</div>
+  <div id="ctlGrid">
+    <button id="btnPrev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 7l-5 5 5 5"></path><path d="M5 4v16"></path><path d="M5 4h6l-1.5 2.5L11 9H5z" fill="currentColor"></path></svg><span>이전</span></button>
+    <button id="btnLoop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg><span>반복</span></button>
+    <button id="btnPlay">▶</button>
+    <button id="btnSpeed"><span class="big num" id="speedLabel">100%</span><span>속도</span></button>
+    <button id="btnNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 7l5 5-5 5"></path><path d="M19 4v16"></path><path d="M19 4h-6l1.5 2.5L13 9h6z" fill="currentColor"></path></svg><span>다음</span></button>
+    <button id="btnFlagAdd" class="r2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V4"></path><path d="M6 4h10l-2 4 2 4H6z" fill="currentColor"></path><circle cx="18" cy="17" r="4.5" fill="currentColor" stroke="none"></circle><path d="M18 14.5v5M15.5 17h5" stroke="#16181d" stroke-width="2"></path></svg><span>추가</span></button>
+    <button id="btnFlagDel" class="r2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V4"></path><path d="M6 4h10l-2 4 2 4H6z"></path><circle cx="18" cy="17" r="4.5" fill="currentColor" stroke="none"></circle><path d="M16.2 15.2l3.6 3.6M19.8 15.2l-3.6 3.6" stroke="#16181d" stroke-width="2"></path></svg><span>삭제</span></button>
+    <button id="btnClick" class="r2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path></svg><span>카운트음</span></button>
+    <button id="btnAccent" class="r2"><span class="num" style="font-size:15px; font-weight:600; letter-spacing:.04em">2·4·6·8</span><span>짝수 강세</span></button>
+  </div>
+</div>
+
+<nav id="tabBar" hidden>
+  <div class="tab" data-tab="play">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8l6 4-6 4z" fill="currentColor" stroke="none"></path></svg>
+    <div>재생</div>
+  </div>
+  <div class="tab" data-tab="learn">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="3" y="14" width="4" height="6" rx="1.5"></rect><rect x="17" y="14" width="4" height="6" rx="1.5"></rect></svg>
+    <div>학습</div>
+  </div>
+  <div class="tab" data-tab="list">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h10"></path></svg>
+    <div>목록</div>
+  </div>
+</nav>
+
+<!-- 곡 정보 · 박자 보정 시트 (제목을 누르면) -->
+<div class="dim" id="dim" hidden></div>
+<div class="sheet" id="infoSheet" hidden>
+  <h3 id="infoTitle">곡 제목</h3>
+  <div class="stats num" id="infoStats"></div>
+  <div class="secHead"><b>박자 보정</b><span>카운트가 어긋나게 들릴 때만</span></div>
+  <div style="font-size:13px; color:var(--t2); line-height:1.7; margin-top:6px">
+    대부분은 그대로 들으면 돼요. 어긋나게 들리는 순간이 오면 — 그때 딱 한 번:
+  </div>
+  <div class="row">
+    <button id="fxHere" style="border-color:var(--yellow); color:var(--yellow); font-weight:700">지금 이 순간이 1이에요</button>
+  </div>
+  <div id="driftInfo" class="warn" style="margin-top:8px"></div>
+  <details style="margin-top:12px">
+    <summary style="color:var(--t2); font-size:13px">세부 설정 (몰라도 돼요)</summary>
+    <div class="label">1의 위치 미세 조정 (곡 전체의 1)</div>
+    <div class="row"><button id="fxBack">1 한 박자 앞</button><button id="fxFwd">1 한 박자 뒤</button><button id="fxSwap">1↔5</button></div>
+    <div class="row"><button id="fxGlobalHere">지금 이 순간을 곡 전체의 1로</button><button id="fxUndoSection">마지막 구간 보정 취소</button></div>
+    <div class="label">프레이즈 길이 — 기본 4 (대부분의 스윙 곡)</div>
+    <div class="row"><button data-plen="4">4</button><button data-plen="6">6</button><button data-plen="8">8</button></div>
+    <div class="label">빠르기 해석 — 카운트가 두 배 빠르거나 느리게 느껴질 때</div>
+    <div class="row"><button id="fxHalf">BPM 반으로</button><button id="fxNormal">기본</button><button id="fxDouble">BPM 두 배로</button></div>
+  </details>
+  <div class="row" style="margin-top:14px"><button class="primary" id="fxClose" style="height:56px">닫기</button></div>
+</div>
+
+<!-- 속도 시트 -->
+<div class="sheet" id="speedSheet" hidden>
+  <h3>재생 속도 <span style="font-size:12px; color:var(--t2); font-weight:400">음정은 그대로</span></h3>
+  <div id="speedBig" class="num">100<span>%</span></div>
+  <div style="display:grid; grid-template-columns:36px 1fr 36px; gap:12px; align-items:center; margin-top:14px">
+    <div class="num" style="font-size:14px; color:var(--t2)">50</div>
+    <input type="range" id="speed" min="50" max="100" step="5" value="100">
+    <div class="num" style="font-size:14px; color:var(--t2); text-align:right">100</div>
+  </div>
+  <div id="speedPresets" class="num"></div>
+  <div class="row" style="margin-top:14px"><button class="primary" id="spClose" style="height:56px">닫기</button></div>
+</div>
+
+<!-- 설정 시트 (지연 보정 · 강세 방식) -->
+<div class="sheet" id="settingsSheet" hidden>
+  <h3>설정</h3>
+  <div class="secHead"><b>기기 지연 보정</b><span>화면과 소리는 따로 맞춰요</span></div>
+  <div class="label">화면 <span id="lagScreenV" class="num"></span></div>
+  <input type="range" id="lagScreen" min="0" max="300" step="10">
+  <div class="label">카운트음 <span id="lagClickV" class="num"></span></div>
+  <input type="range" id="lagClick" min="0" max="300" step="10">
+  <div id="autoLag" style="font-size:12px; color:var(--t2); margin-top:8px; line-height:1.6"></div>
+  <div class="row"><button id="btnCalibrate">👆 두드려 재기</button></div>
+  <div class="secHead"><b>짝수 강세 방식</b><span>2·4·6·8을 어떻게 살릴까</span></div>
+  <div class="row"><button id="accGain">음악을 살짝 키우기</button><button id="accClick">다른 음색으로 찍기</button></div>
+  <div class="row" style="margin-top:14px"><button class="primary" id="stClose" style="height:56px">닫기</button></div>
+</div>
+
+<div id="gameView" class="overlay" hidden></div>
+<div id="bounceView" class="overlay" hidden></div>
+<div id="listenView" class="overlay" hidden></div>
+<div id="calView" class="overlay" hidden></div>
+<div id="resultView" class="overlay" hidden></div>
+<div id="toast"></div>
+<audio id="au" preload="auto"></audio>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+<script type="module" src="./ui/player.js"></script>
+</body>
+</html>

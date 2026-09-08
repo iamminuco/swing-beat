@@ -1,0 +1,103 @@
+// Click engine + lookahead scheduler, ported from the proven template.html one
+// (sine + short decay — square waves pierce over music, a user-confirmed call).
+// Accent levels come from the SongMap accent mode:
+//   EVEN     → counts 2·4·6·8 loud (사용자 요구: 짝수 박 강세)
+//   ONE_FIVE → count 1 loudest, 5 middle (the old app's scheme)
+//   OFF      → uniform
+// Browser-only; the caller owns the AudioContext and the layout.
+export function createClickEngine(getCtx) {
+  // 예약했지만 아직 안 울린 노드. 정지·탐색·학습 종료 때 cancelPending()으로
+  // 지운다 — 안 그러면 카운트음 지연 300ms일 때 이전 구간의 클릭이 뒤늦게 들린다.
+  const live = new Set();
+  function track(osc, gain) {
+    const node = { osc, gain };
+    live.add(node);
+    osc.onended = () => { live.delete(node); try { gain.disconnect(); } catch { /* already */ } };
+  }
+  function cancelPending() {
+    const ctx = getCtx();
+    const now = ctx.currentTime;
+    for (const { osc, gain } of live) {
+      // 즉시 하드컷(osc.stop(now))은 톡 하고 팝이 난다 — 3ms 페이드로 눕히고 끈다.
+      try {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.003);
+      } catch { /* node gone */ }
+      try { osc.stop(now + 0.004); } catch { /* not started — silent */ }
+    }
+    live.clear();
+  }
+
+  function levelFor(count, accent) {
+    if (accent === 'EVEN') return count % 2 === 0 ? 0 : 2;
+    if (accent === 'ONE_FIVE') return count === 1 ? 0 : count === 5 ? 1 : 2;
+    return 1;
+  }
+
+  function click(when, level, volume) {
+    const ctx = getCtx();
+    const vol = volume * (level === 0 ? 0.85 : level === 1 ? 0.55 : 0.3);
+    if (vol <= 0) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = level === 0 ? 1050 : level === 1 ? 840 : 660;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(vol, when + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.035);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(when);
+    osc.stop(when + 0.05);
+    track(osc, gain);
+  }
+
+  // Schedule upcoming counts a little ahead of the audio clock. state carries
+  // nextIdx across calls; resync() after every seek. lagClickMs is the click
+  // half of the two-value latency correction (screen lag is separate).
+  function schedule(state, counts, nowMusic, rate, opts) {
+    const ctx = getCtx();
+    const horizon = nowMusic + 0.15 * rate;
+    while (state.nextIdx < counts.length && counts[state.nextIdx].time < horizon) {
+      const c = counts[state.nextIdx];
+      if (c.time >= nowMusic - 0.01) {
+        const when = ctx.currentTime + (c.time - nowMusic) / rate + opts.lagClickMs / 1000;
+        click(when, levelFor(c.count, opts.accent), opts.volume);
+      }
+      state.nextIdx += 1;
+    }
+  }
+
+  // 카운트인: 5·6·7·8 four clicks at the local beat interval, returns the real
+  // seconds until the music should actually start.
+  function countIn(interval, rate, opts) {
+    const ctx = getCtx();
+    const step = interval / rate;
+    for (let i = 0; i < 4; i++) {
+      click(ctx.currentTime + i * step + opts.lagClickMs / 1000,
+        levelFor(5 + i, opts.accent), opts.volume);
+    }
+    return 4 * step;
+  }
+
+  // 짝수 강세 방식 ②(설계 §6): 카운트음과 다른 음색(삼각파·짧은 우드블록 느낌)으로
+  // 짝수 박만 찍는다. 카운트음이 꺼져 있어도 강세만 들을 수 있다.
+  function accentClick(when, volume) {
+    const ctx = getCtx();
+    if (volume <= 0) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1500, when);
+    osc.frequency.exponentialRampToValueAtTime(900, when + 0.03);
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(volume, when + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.045);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(when);
+    osc.stop(when + 0.06);
+    track(osc, gain);
+  }
+
+  return { schedule, countIn, clickAt: click, accentClick, cancelPending };
+}
