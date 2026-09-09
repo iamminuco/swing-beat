@@ -44,9 +44,10 @@
   #hud { text-align:center; padding:2px 16px 4px; }
   #progressLine { font-size:13px; color:var(--t2); min-height:18px; }
   #progressLine b { color:var(--t0); font-size:16px; font-weight:600; }
-  #bigCount { font-size:110px; font-weight:600; line-height:.9; color:#fff; transition:transform .06s; }
+  #bigCount { font-size:110px; font-weight:600; line-height:.9; color:#fff; transition:transform .08s, color .08s; }
   #bigCount.idle { color:var(--t3); }
   #bigCount.accent { transform:scale(1.1); }
+  #bigCount.one { color:var(--yellow); transform:scale(1.28); }
   #cells { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:6px; margin-top:6px; }
   #cells div { height:36px; border-radius:8px; font-size:20px; font-weight:600; display:flex;
                align-items:center; justify-content:center; background:var(--card); color:var(--t2); }

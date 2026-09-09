@@ -412,7 +412,9 @@ function paintNow() {
     if (item) {
       big.textContent = item.count;
       big.classList.remove('idle');
-      big.classList.toggle('accent', map.accent === 'EVEN' && item.count % 2 === 0);
+      // 1은 노랗게 확 커진다 — 귀로 못 잡아도 눈으로 1의 자리를 잡게(못 듣는 초보). 소리(둠)와 같은 순간.
+      big.classList.toggle('one', item.count === 1);
+      big.classList.toggle('accent', item.count !== 1 && map.accent === 'EVEN' && item.count % 2 === 0);
       paintCells(item);
       const phrases = lay.totals.fullPhrases + (lay.totals.endingCounts ? 1 : 0);
       const eightIn = ((item.eight - 1) % map.phraseLen) + 1;
