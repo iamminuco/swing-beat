@@ -75,6 +75,9 @@
   #ctlGrid button { padding:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-size:11px; }
   #ctlGrid button svg { width:24px; height:24px; }
   #ctlGrid button .big { font-size:20px; font-weight:600; line-height:1; }
+  #ctlGrid button span { white-space:nowrap; }              /* 라벨이 2줄로 접혀 칸 넘치는 것 방지 */
+  #ctlGrid button span:last-child { font-size:10px; line-height:1.15; }  /* '카운트음'·'짝수 강세'도 한 줄에 */
+  #btnAccent .num { font-size:13px; letter-spacing:0; }     /* '2·4·6·8'이 좁은 폰에서 칸 밖으로 안 나가게 */
   #ctlGrid .r2 { display:none; }
   #ctlGrid.expanded .r2 { display:flex; }
   #btnPlay { grid-column:3; background:var(--t0); color:var(--bg); border:0; border-radius:14px; font-size:26px; }
@@ -85,7 +88,7 @@
   #btnClick { grid-column:4; grid-row:2; } #btnAccent { grid-column:5; grid-row:2; }
 
   /* ── 탭바 ── */
-  #tabBar { display:grid; grid-template-columns:repeat(3,1fr); height:64px; border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+  #tabBar { display:grid; grid-template-columns:repeat(3,1fr); height:calc(64px + env(safe-area-inset-bottom)); flex-shrink:0; border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
   .tab { display:flex; flex-direction:column; align-items:center; justify-content:center;
          gap:4px; color:var(--t2); font-size:11px; font-weight:500; }
   .tab.on { color:#fff; font-weight:700; }
@@ -325,7 +328,7 @@
     <button id="btnFlagAdd" class="r2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V4"></path><path d="M6 4h10l-2 4 2 4H6z" fill="currentColor"></path><circle cx="18" cy="17" r="4.5" fill="currentColor" stroke="none"></circle><path d="M18 14.5v5M15.5 17h5" stroke="#16181d" stroke-width="2"></path></svg><span>추가</span></button>
     <button id="btnFlagDel" class="r2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V4"></path><path d="M6 4h10l-2 4 2 4H6z"></path><circle cx="18" cy="17" r="4.5" fill="currentColor" stroke="none"></circle><path d="M16.2 15.2l3.6 3.6M19.8 15.2l-3.6 3.6" stroke="#16181d" stroke-width="2"></path></svg><span>삭제</span></button>
     <button id="btnClick" class="r2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path></svg><span>카운트음</span></button>
-    <button id="btnAccent" class="r2"><span class="num" style="font-size:15px; font-weight:600; letter-spacing:.04em">2·4·6·8</span><span>짝수 강세</span></button>
+    <button id="btnAccent" class="r2"><span class="num" style="font-weight:600">2·4·6·8</span><span>짝수 강세</span></button>
   </div>
 </div>
 
@@ -347,7 +350,7 @@
 <!-- 곡 정보 · 박자 보정 시트 (제목을 누르면) -->
 <div class="dim" id="dim" hidden></div>
 <div class="sheet" id="infoSheet" hidden>
-  <h3 id="infoTitle">곡 제목</h3>
+  <h3 id="infoTitle" style="overflow-wrap:anywhere">곡 제목</h3>
   <div class="stats num" id="infoStats"></div>
   <div class="secHead"><b>박자 보정</b><span>카운트가 어긋나게 들릴 때만</span></div>
   <div style="font-size:13px; color:var(--t2); line-height:1.7; margin-top:6px">
