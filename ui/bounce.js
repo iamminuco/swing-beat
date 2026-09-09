@@ -12,7 +12,7 @@ const GAP_RATE = 0.85;
 const GAP_ON = 8, GAP_OFF = 8;
 
 export function startBounce({
-  mode, counts, au, ensureCtx, clickAt, cancelClicks, getHeardTime, getRate, setRate, onExit, title,
+  mode, counts, au, ensureCtx, clickAt, kick, cancelClicks, getHeardTime, getRate, setRate, onExit, title,
 }) {
   const root = document.getElementById('bounceView');
   const gap = mode === 'gap';
@@ -50,7 +50,7 @@ export function startBounce({
       return;
     }
     $('bnHint').innerHTML = hint
-      ? '<b style="color:#ffd644">노란 큰 공 = 1</b> (여덟 카운트의 시작). 어떤 소리·느낌인지 익혀 보세요.'
+      ? '<b style="color:#ffd644">낮게 「둠」 하는 큰 공 = 1</b> (여덟 카운트의 시작). 스윙은 1이 낮은 베이스예요.'
       : '이제 <b>혼자</b> — 음악만 듣고 1이라고 느낄 때 눌러요. 맞았는지 알려줄게요.';
     if ($('bnToggle')) $('bnToggle').textContent = hint ? '힌트 끄고 혼자 찾기 →' : '← 힌트 다시 켜기';
     $('bnStrip').style.visibility = hint ? 'visible' : 'hidden'; // 힌트 끄면 자리표시도 숨긴다(1 노출 방지)
@@ -136,9 +136,9 @@ export function startBounce({
       const emphasized = c.count === 1 || c.count === 5;
       if (c.time >= now - 0.01 && audibleAt(idx) && (gap || emphasized)) {
         const when = ctx.currentTime + (c.time - now) / rate;
-        const lvl = c.count === 1 ? 0 : c.count === 5 ? 1 : 2;
-        const vol = c.count === 1 ? 0.9 : c.count === 5 ? 0.6 : 0.3;
-        clickAt(when, lvl, vol);
+        // 1 = 낮은 둠(베이스처럼), 5 = 중간, 나머지(gap) = 여린 고음. 스윙의 저역=1 구조를 귀로.
+        if (c.count === 1) kick(when, 0.95);
+        else clickAt(when, c.count === 5 ? 1 : 2, c.count === 5 ? 0.6 : 0.3);
       }
       clickState.nextIdx += 1;
     }

@@ -1012,7 +1012,7 @@ function launchBounce(mode) {
   enterLearning();
   startBounce({
     mode, counts: lay.counts, au, ensureCtx,
-    clickAt: engine.clickAt, cancelClicks: engine.cancelPending,
+    clickAt: engine.clickAt, kick: engine.kick, cancelClicks: engine.cancelPending,
     getHeardTime: heardTime, getRate,
     setRate: r => setSpeed(Math.round(r * 100), false),
     title: mode === 'find' ? '1 찾기' : '혼자 이어가기',

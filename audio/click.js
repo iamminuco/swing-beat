@@ -92,6 +92,26 @@ export function createClickEngine(getCtx) {
     return 4 * step;
   }
 
+  // 「1」 전용 낮은 둠(kick). 스윙에서 1은 저역(베이스드럼/워킹베이스)이고 큰 2·4는 고역이다
+  // (교습 조사 9/9). 그 구조를 귀로 가르치려 1은 낮게 낸다. 단 폰 스피커가 진짜 저음을 못
+  // 내므로 ~330→180Hz로 떨어지는 "둠"(폰에서도 들리는 낮은 대역)으로 만든다.
+  function kick(when, volume) {
+    const ctx = getCtx();
+    if (volume <= 0) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(330, when);
+    osc.frequency.exponentialRampToValueAtTime(180, when + 0.08);
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(volume, when + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.14);
+    osc.connect(gain).connect(bus());
+    osc.start(when);
+    osc.stop(when + 0.16);
+    track(osc, gain);
+  }
+
   // 짝수 강세 방식 ②(설계 §6): 카운트음과 다른 음색(삼각파·짧은 우드블록 느낌)으로
   // 짝수 박만 찍는다. 카운트음이 꺼져 있어도 강세만 들을 수 있다.
   function accentClick(when, volume) {
@@ -111,5 +131,5 @@ export function createClickEngine(getCtx) {
     track(osc, gain);
   }
 
-  return { schedule, countIn, clickAt: click, accentClick, cancelPending };
+  return { schedule, countIn, clickAt: click, kick, accentClick, cancelPending };
 }
