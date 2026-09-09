@@ -1024,7 +1024,7 @@ function launchBounce(mode) {
     clickAt: engine.clickAt, kick: engine.kick, cancelClicks: engine.cancelPending,
     getHeardTime: heardTime, getRate,
     setRate: r => setSpeed(Math.round(r * 100), false),
-    title: mode === 'find' ? '1 찾기' : '혼자 이어가기',
+    title: mode === 'find' ? '박자 잡기' : '혼자 이어가기',
     onExit: () => { leaveLearning(); switchTab('learn'); },
   });
 }
