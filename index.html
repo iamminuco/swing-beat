@@ -362,6 +362,10 @@
 <!-- 설정 시트 (지연 보정 · 강세 방식) -->
 <div class="sheet" id="settingsSheet" hidden>
   <h3>설정</h3>
+  <div class="secHead"><b>카운트음 크기</b><span>음악에 안 묻히게 키워요</span></div>
+  <div class="label">소리 <span id="cueVolV" class="num"></span></div>
+  <input type="range" id="cueVol" min="20" max="150" step="10">
+  <div style="font-size:12px; color:var(--t2); margin-top:6px; line-height:1.6">박자가 안 들리면 이걸 끝까지 키우세요. 음악보다 카운트음이 더 크게 들려야 따라가기 쉬워요.</div>
   <div class="secHead"><b>기기 지연 보정</b><span>화면과 소리는 따로 맞춰요</span></div>
   <div class="label">화면 <span id="lagScreenV" class="num"></span></div>
   <input type="range" id="lagScreen" min="0" max="300" step="10">

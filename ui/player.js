@@ -45,7 +45,7 @@ let lag = { screen: 0, click: 0 };
 // 'gain'(음악 볼륨을 짝수 박에서 키움)은 음악을 WebAudio(MediaElementSource)로 태워야 하는데,
 // 크롬이 그 경로에서 일시정지 때 지지직 노이즈를 낸다(사용자 실보고 9/8·codex 독립 확인).
 // 그래서 gain은 기본이 아니라 사용자가 설정에서 명시로 켤 때만 쓴다.
-let prefs = { expanded: false, accentMethod: 'click', countMode: 1 };
+let prefs = { expanded: false, accentMethod: 'click', countMode: 1, cueVol: 100 };
 const analyzing = new Set();   // 뒤에서 분석 중인 파일 이름(목록의 「박 찾는 중」)
 const selected = new Set();    // 목록에서 고른 곡 키
 let queue = [], queueIdx = -1; // 연속 재생
@@ -542,7 +542,7 @@ setInterval(() => {
   }
   if (!clickOn || !audioCtx) return;
   engine.schedule(clickState, lay.counts, now, rate,
-    { lagClickMs: lag.click, accent: map.accent, volume: 0.8 });
+    { lagClickMs: lag.click, accent: map.accent, volume: prefs.cueVol / 100 });
 }, 25);
 
 au.addEventListener('seeked', () => { resync(); if (loopOn) updateLoop(); }); // 옮겨 간 자리 기준으로 반복 구간을 다시 잡는다
@@ -592,7 +592,7 @@ function play() {
     const interval = next ? next.time - c.time : (c.end - c.time) || 0.5;
     if (Math.abs(au.currentTime - c.time) > 0.005) au.currentTime = c.time;
     const wait = engine.countIn(interval, au.playbackRate || 1,
-      { lagClickMs: lag.click, accent: map.accent, volume: 0.8 });
+      { lagClickMs: lag.click, accent: map.accent, volume: prefs.cueVol / 100 });
     countInTimer = setTimeout(() => { countInTimer = null; startPlayback(); }, wait * 1000);
   } else {
     startPlayback();
@@ -782,6 +782,10 @@ for (const which of ['Screen', 'Click']) {
   });
 }
 paintLag();
+// 카운트음 크기 — 음악에 안 묻히게 사용자가 직접 키운다(못 듣는 초보의 최우선 레버)
+function paintCueVol() { $('cueVol').value = prefs.cueVol; $('cueVolV').textContent = prefs.cueVol + '%'; }
+$('cueVol').addEventListener('input', e => { prefs.cueVol = +e.target.value; savePrefs(); paintCueVol(); });
+paintCueVol();
 function paintAccentMethod() {
   $('accGain').classList.toggle('on', prefs.accentMethod === 'gain');
   $('accClick').classList.toggle('on', prefs.accentMethod === 'click');

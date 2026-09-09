@@ -13,7 +13,7 @@ export function createClickEngine(getCtx) {
     const ctx = getCtx();
     if (master && masterCtx === ctx) return master;
     master = ctx.createGain();
-    master.gain.value = 0.55;
+    master.gain.value = 0.9; // 카운트음이 음악에 안 묻히게 — 카운트음은 박자당 1발이라 이 정도로 안 찢어진다
     master.connect(ctx.destination);
     masterCtx = ctx;
     return master;
@@ -49,7 +49,8 @@ export function createClickEngine(getCtx) {
 
   function click(when, level, volume) {
     const ctx = getCtx();
-    const vol = volume * (level === 0 ? 0.85 : level === 1 ? 0.55 : 0.3);
+    // 0.98 상한: 사용자가 크기를 끝까지 키워도 클릭 하나가 절대 안 찢어지게(크게만·깨끗하게).
+    const vol = Math.min(0.98, volume * (level === 0 ? 0.85 : level === 1 ? 0.55 : 0.3));
     if (vol <= 0) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -100,14 +101,15 @@ export function createClickEngine(getCtx) {
   // 내므로 ~330→180Hz로 떨어지는 "둠"(폰에서도 들리는 낮은 대역)으로 만든다.
   function kick(when, volume) {
     const ctx = getCtx();
-    if (volume <= 0) return;
+    const vol = Math.min(0.98, volume);
+    if (vol <= 0) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(330, when);
     osc.frequency.exponentialRampToValueAtTime(180, when + 0.08);
     gain.gain.setValueAtTime(0, when);
-    gain.gain.linearRampToValueAtTime(volume, when + 0.004);
+    gain.gain.linearRampToValueAtTime(vol, when + 0.004);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.14);
     osc.connect(gain).connect(bus());
     osc.start(when);
