@@ -3,6 +3,11 @@
 // 그래서 곡 전체를 지나가며(계속 새 자료) 하고, 힌트를 껐다 켤 수 있게 한다:
 //   힌트 켬 → 앱이 1을 노란 큰 공+큰 소리로 짚어 준다(1이 어떤 소리·느낌인지 익힌다).
 //   힌트 끔 → 소리 표시가 사라진다. 음악만 듣고 1이라고 느낄 때 눌러서 스스로 찾는다(진짜 실력).
+// 확인 라운드(9/9, codex 대조) → "잘되는지 모르겠다"에 답하려고 채점을 남긴다:
+//   공(박자 큐)과 소리 힌트, 실시간 정답 피드백을 잠깐 걷고, 음악만 듣고 1을 N번 찾게 한 뒤
+//   끝나면 "지나온 1 N번 중 Y번 맞힘 · 다른 박 A번 · 놓침 M번"으로 요약한다. 세션 안 비교만.
+//   ※ "우연 X%" 같은 확률선은 안 쓴다 — 자유 탭이라 균등 추측이 아니고 시간오차도 함께 채점하니
+//     통계적으로 틀린 기준이다(codex 지적, 채택). 정답표는 앱이 자동으로 잡은 1이라 곡에 따라 틀릴 수 있다.
 // 근거: 가변 연습이 전이에 유리(Shea&Morgan), 자기조절 피드백(원할 때 힌트 on/off)이 파지에 유리.
 // 용어는 "박자/카운트"만 쓴다.
 import { countAt } from '../core/analysis/analyze.js';
@@ -10,6 +15,8 @@ import { countAt } from '../core/analysis/analyze.js';
 const FIND_RATE = 0.85; // 기본만 살짝 느리게 — 나머지는 화면 안 속도 조절로 사용자가 정한다
 const GAP_RATE = 0.85;
 const GAP_ON = 8, GAP_OFF = 8;
+const CHECK_N = 4;       // 확인 라운드에서 찾을 1의 개수(짧고 반복 가능하게)
+const WIN_MS = 150;      // 박자 판정창(게임의 더 좁은 창은 안 가져온다 — codex 권고)
 
 export function startBounce({
   mode, counts, au, ensureCtx, clickAt, kick, cancelClicks, getHeardTime, getRate, setRate, onExit, title,
@@ -21,6 +28,14 @@ export function startBounce({
   let closed = false, hits = [], hint = true;
   let clickState = { nextIdx: 0 };
 
+  // 확인 라운드 상태
+  let checking = false;
+  let checkTaps = [];
+  let targetOnes = [];            // 이번 라운드에서 찾을 count===1 박자들의 counts 인덱스
+  let targetOneIdx = new Set();
+  let checkStartHeard = 0, checkEndTime = 0, checkRate = null;
+  let lastCheck = null;           // 직전 라운드 결과(같은 속도일 때만 비교)
+
   root.innerHTML = `
     <div class="ovTop">
       <button class="ovClose" id="bnExit">✕</button>
@@ -28,15 +43,19 @@ export function startBounce({
       <div class="ovRight"></div>
     </div>
     <div class="bnHint" id="bnHint"></div>
-    <div class="bnSpeed">
+    <div class="bnSpeed" id="bnSpeed">
       <button id="bnSlow" aria-label="느리게">−</button>
       <div><span id="bnSpeedV" class="num">85%</span><div class="bnSpeedLbl">속도</div></div>
       <button id="bnFast" aria-label="빠르게">+</button>
     </div>
-    ${gap ? '' : '<button class="lsDemo" id="bnToggle" style="max-width:260px; margin:6px auto 0; height:44px; font-size:15px"></button>'}
+    ${gap ? '' : `<div id="bnBtns" style="display:flex; gap:8px; max-width:340px; margin:6px auto 0; justify-content:center">
+      <button class="lsDemo" id="bnToggle" style="flex:1; height:44px; font-size:15px"></button>
+      <button class="lsDemo" id="bnCheck" style="flex:1; height:44px; font-size:15px; display:none">혼자 확인하기 →</button>
+    </div>`}
     <div class="bnStrip" id="bnStrip"></div>
     <canvas id="bnCanvas"></canvas>
-    <div class="bnTapHint">${gap ? '소리가 없는 동안에도 계속 세세요' : '1이라고 느낄 때 화면을 누르세요'}</div>`;
+    <div class="bnTapHint" id="bnTapHint">${gap ? '소리가 없는 동안에도 계속 세세요' : '1이라고 느낄 때 화면을 누르세요'}</div>
+    <div id="bnSummary" style="position:absolute; inset:0; background:rgba(22,24,29,0.97); display:none; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; z-index:5"></div>`;
   root.hidden = false;
   const $ = id => root.querySelector('#' + id);
 
@@ -51,11 +70,22 @@ export function startBounce({
     }
     $('bnHint').innerHTML = hint
       ? '<b style="color:#ffd644">낮게 「둠」 하는 큰 공 = 1</b> (여덟 카운트의 시작). 스윙은 1이 낮은 베이스예요.'
-      : '이제 <b>혼자</b> — 음악만 듣고 1이라고 느낄 때 눌러요. 맞았는지 알려줄게요.';
-    if ($('bnToggle')) $('bnToggle').textContent = hint ? '힌트 끄고 혼자 찾기 →' : '← 힌트 다시 켜기';
+      : '이제 <b>혼자</b> — 음악만 듣고 1이라고 느낄 때 눌러요. 맞았는지 알려줄게요. 준비되면 <b>혼자 확인하기</b>로 채점해요.';
+    if ($('bnToggle')) {
+      $('bnToggle').textContent = hint ? '힌트 끄고 혼자 찾기 →' : '← 힌트 다시 켜기';
+      $('bnToggle').style.display = '';
+    }
+    if ($('bnCheck')) {
+      $('bnCheck').textContent = '혼자 확인하기 →';
+      $('bnCheck').style.display = hint ? 'none' : ''; // 힌트 끈 뒤에만 채점 라운드 제공
+    }
     $('bnStrip').style.visibility = hint ? 'visible' : 'hidden'; // 힌트 끄면 자리표시도 숨긴다(1 노출 방지)
+    $('bnTapHint').textContent = '1이라고 느낄 때 화면을 누르세요';
   }
-  if (!gap) $('bnToggle').onclick = () => { hint = !hint; paintHint(); };
+  if (!gap) {
+    $('bnToggle').onclick = () => { hint = !hint; paintHint(); };
+    $('bnCheck').onclick = () => { if (checking) abortCheck(); else startCheck(); };
+  }
   paintHint();
 
   // 속도 조절 — 곡 안에서 바로 반영(음정 유지). 나갈 때 원래 속도로 복원.
@@ -108,7 +138,12 @@ export function startBounce({
     const i = nearestBeatIndex(t);
     const c = counts[i];
     const diff = Math.abs(t - c.time) / getRate() * 1000;
-    const onBeat = diff <= 150;
+    const onBeat = diff <= WIN_MS;
+    // 확인 라운드: 정답을 지금 보여주지 않고(피드백 걷음) 탭만 모은다 → 끝나고 채점.
+    if (checking) {
+      checkTaps.push({ i, count: c.count, onBeat, born: performance.now() });
+      return;
+    }
     // find+힌트끔: "1을 맞혔나"가 핵심. gap/힌트켬: 그냥 박자 맞췄나.
     const good = (!gap && !hint) ? (onBeat && c.count === 1) : onBeat;
     let msg = '';
@@ -122,8 +157,98 @@ export function startBounce({
   }
   canvas.addEventListener('pointerdown', tap);
 
+  // ── 확인 라운드 ──────────────────────────────────────────────
+  function startCheck() {
+    const h = getHeardTime();
+    targetOnes = []; targetOneIdx = new Set();
+    // 지금 위치에서 앞으로 지나갈 1들을 목표로. 첫 1은 최소 0.6초 뒤여야 반응할 틈이 있다.
+    for (let k = 0; k < counts.length && targetOnes.length < CHECK_N; k++) {
+      if (counts[k].count === 1 && counts[k].time > h + 0.6) { targetOnes.push(k); targetOneIdx.add(k); }
+    }
+    if (targetOnes.length === 0) { // 곡 끝 근처 — 처음으로 되돌려 다시 채운다
+      toStart();
+      for (let k = 0; k < counts.length && targetOnes.length < CHECK_N; k++) {
+        if (counts[k].count === 1 && counts[k].time > firstBeat - 0.01) { targetOnes.push(k); targetOneIdx.add(k); }
+      }
+      checkStartHeard = firstBeat - 1;
+    } else {
+      checkStartHeard = h;
+    }
+    if (targetOnes.length === 0) return; // 1이 하나도 없는 비정상 곡 — 채점 불가
+    checkEndTime = counts[targetOnes[targetOnes.length - 1]].time + 0.5; // 마지막 1 뒤 여유
+    checkTaps = []; hits = []; checkRate = curRate; checking = true;
+    // UI: 공·소리·실시간 피드백을 걷는다
+    $('bnHint').innerHTML = `<b>혼자 확인 중</b> — 음악만 듣고, 1이라고 느낄 때 눌러요. 공·소리 힌트는 잠깐 꺼둘게요. (1을 ${targetOnes.length}번 찾기)`;
+    $('bnToggle').style.display = 'none';
+    $('bnCheck').textContent = '확인 그만두기';
+    $('bnStrip').style.visibility = 'hidden';
+    $('bnSpeed').style.visibility = 'hidden';
+    $('bnTapHint').textContent = '음악만 듣고 · 1이라고 느낄 때 누르기';
+    if (au.paused && !closed) au.play().catch(() => {});
+  }
+
+  function abortCheck() {
+    checking = false;
+    $('bnSpeed').style.visibility = '';
+    paintHint();
+  }
+
+  function finishCheck() {
+    if (!checking) return;
+    checking = false;
+    const N = targetOnes.length;
+    const hitSet = new Set();
+    let wrong = 0, off = 0;
+    for (const tp of checkTaps) {
+      if (tp.onBeat && tp.count === 1 && targetOneIdx.has(tp.i)) hitSet.add(tp.i); // 같은 1 중복 탭은 Set이 무효화
+      else if (tp.onBeat && tp.count === 1) { /* 목표창 밖의 1 — 분모 초과 방지 위해 무시 */ }
+      else if (tp.onBeat) wrong++;    // 창 안이지만 1이 아님 = 1 위치 혼동
+      else off++;                     // 창 밖 = 시간이 어긋남(빗나감)
+    }
+    const Y = hitSet.size, missed = N - Y;
+    const prev = (lastCheck && lastCheck.rate === checkRate) ? lastCheck : null;
+    lastCheck = { N, Y, wrong, off, rate: checkRate };
+    showSummary({ N, Y, wrong, off, missed, prev });
+  }
+
+  function showSummary({ N, Y, wrong, off, missed, prev }) {
+    const encourage = Y === 0
+      ? '아직 귀가 트이는 중이에요. 힌트를 켜고 「둠」 소리를 더 들어도 좋아요.'
+      : Y >= N ? '전부 맞혔어요. 속도를 올리거나 힌트 없이 더 해봐요.'
+        : '되고 있어요. 같은 곡으로 몇 번 더 해봐요.';
+    let cmp = '';
+    if (prev) {
+      const d = Y - prev.Y;
+      cmp = d > 0 ? `<div style="color:#ffd644; font-size:15px; margin-top:6px">지난번보다 +${d} (지난번 ${prev.Y}번)</div>`
+        : d < 0 ? `<div style="color:#8f929b; font-size:15px; margin-top:6px">지난번은 ${prev.Y}번이었어요. 한 번 더 해봐요.</div>`
+          : `<div style="color:#8f929b; font-size:15px; margin-top:6px">지난번과 같아요 (${prev.Y}번).</div>`;
+    }
+    const offLine = off > 0 ? `<div style="color:#8f929b; font-size:14px">· 박자 아닌 곳: ${off}번</div>` : '';
+    $('bnSummary').innerHTML = `
+      <div style="font-size:18px; font-weight:700; margin-bottom:4px">이번 확인 (혼자 · 음악만)</div>
+      <div style="font-size:15px; color:#c9cdd6; margin-bottom:14px">지나온 1 — ${N}번</div>
+      <div style="font-size:34px; font-weight:800; color:#ffd644; line-height:1.1">${Y}<span style="font-size:18px; color:#c9cdd6"> / ${N} 맞힘</span></div>
+      <div style="margin-top:12px; font-size:15px; color:#c9cdd6; line-height:1.6">
+        <div>✘ 다른 박을 1로 누름 — ${wrong}번</div>
+        <div>· 놓친 1 — ${missed}번</div>
+        ${offLine}
+      </div>
+      ${cmp}
+      <div style="margin-top:14px; font-size:15px; color:#e8eaee; max-width:300px">${encourage}</div>
+      <div style="margin-top:8px; font-size:12px; color:#6a6e78; max-width:300px">앱이 자동으로 잡은 1 기준이에요 — 곡에 따라 앱이 틀릴 수도 있어요.</div>
+      <div style="display:flex; gap:10px; margin-top:22px; flex-wrap:wrap; justify-content:center">
+        <button class="lsDemo" id="bnAgain" style="height:46px; padding:0 18px; font-size:15px">다시 확인</button>
+        <button class="lsDemo" id="bnBackFree" style="height:46px; padding:0 18px; font-size:15px">혼자 연습</button>
+        <button class="lsDemo" id="bnBackHint" style="height:46px; padding:0 18px; font-size:15px">힌트 켜고 듣기</button>
+      </div>`;
+    $('bnSummary').style.display = 'flex';
+    $('bnAgain').onclick = () => { $('bnSummary').style.display = 'none'; startCheck(); };
+    $('bnBackFree').onclick = () => { $('bnSummary').style.display = 'none'; hint = false; $('bnSpeed').style.visibility = ''; paintHint(); };
+    $('bnBackHint').onclick = () => { $('bnSummary').style.display = 'none'; hint = true; $('bnSpeed').style.visibility = ''; paintHint(); };
+  }
+
   function scheduleClicks() {
-    if (closed || au.paused) return;
+    if (closed || au.paused || checking) return; // 확인 중엔 소리 힌트를 걷는다(음악만 듣게)
     const ctx = ensureCtx();
     const rate = getRate();
     const now = au.currentTime, horizon = now + 0.15 * rate;
@@ -132,7 +257,7 @@ export function startBounce({
       const idx = clickState.nextIdx;
       // 1 찾기(find)는 1·5만 소리낸다 — 매 박자 큰 클릭이 음악과 겹쳐 찢어지던 걸 없애고,
       // 찾을 대상(1·5)만 귀에 남긴다. 나머지 박자는 공으로만 보인다. gap은 박자 유지가
-      // 목적이라 모든 박을 내되 여린 소리로. 볼륨은 엔진 마스터(0.55)가 다시 한 번 누른다.
+      // 목적이라 모든 박을 내되 여린 소리로. 볼륨은 엔진 마스터(0.9)가 다시 한 번 누른다.
       const emphasized = c.count === 1 || c.count === 5;
       if (c.time >= now - 0.01 && audibleAt(idx) && (gap || emphasized)) {
         const when = ctx.currentTime + (c.time - now) / rate;
@@ -147,10 +272,50 @@ export function startBounce({
 
   function toStart() { au.currentTime = Math.max(0, firstBeat - 1); clickState.nextIdx = 0; }
 
+  function drawCheckScreen(heard) {
+    // 박자에 맞춰 튀는 공을 걷는다 — 대신 정적인 안내 원 + 진행바 + 중립 탭 물결.
+    const cx = W / 2, cy = FLOOR - FLOOR * 0.25;
+    g.strokeStyle = '#3a3f4a'; g.lineWidth = 3;
+    g.beginPath(); g.arc(cx, cy, Math.min(46, W * 0.12), 0, Math.PI * 2); g.stroke();
+    g.fillStyle = '#8f929b';
+    g.font = '700 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('듣는 중', cx, cy);
+
+    // 진행바(시간 기준 — 개별 박자 시점을 흘리지 않으려고 박자와 무관하게 그린다)
+    const span = Math.max(0.001, checkEndTime - checkStartHeard);
+    const prog = Math.min(1, Math.max(0, (heard - checkStartHeard) / span));
+    const bw = Math.min(280, W - 60), bx = (W - bw) / 2, by = cy + 90;
+    g.strokeStyle = '#3a3f4a'; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + bw, by); g.stroke();
+    g.strokeStyle = '#ffd644';
+    g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + bw * prog, by); g.stroke();
+    g.lineCap = 'butt';
+
+    // 중립 탭 물결 — 맞았는지는 숨기고, 눌린 것만 알려준다
+    const now = performance.now();
+    for (const tp of checkTaps) {
+      const age = (now - tp.born) / 600;
+      if (age > 1) continue;
+      g.globalAlpha = 1 - age;
+      g.strokeStyle = '#c9cdd6'; g.lineWidth = 3 * (1 - age);
+      g.beginPath(); g.arc(cx, cy, Math.min(46, W * 0.12) + 6 + age * 40, 0, Math.PI * 2); g.stroke();
+      g.globalAlpha = 1;
+    }
+  }
+
   function draw() {
     if (closed) return;
     const heard = getHeardTime();
     const now = performance.now();
+
+    if (checking) {
+      if (heard > checkEndTime || heard > lastBeat + 0.5 || au.ended) { finishCheck(); requestAnimationFrame(draw); return; }
+      g.clearRect(0, 0, W, H);
+      drawCheckScreen(heard);
+      requestAnimationFrame(draw);
+      return;
+    }
+
     if (heard > lastBeat + 1 || au.ended) { toStart(); requestAnimationFrame(draw); return; }
     g.clearRect(0, 0, W, H);
 
