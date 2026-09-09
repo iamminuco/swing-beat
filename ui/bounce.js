@@ -130,10 +130,14 @@ export function startBounce({
     while (clickState.nextIdx < counts.length && counts[clickState.nextIdx].time < horizon) {
       const c = counts[clickState.nextIdx];
       const idx = clickState.nextIdx;
-      if (c.time >= now - 0.01 && audibleAt(idx)) {
+      // 1 찾기(find)는 1·5만 소리낸다 — 매 박자 큰 클릭이 음악과 겹쳐 찢어지던 걸 없애고,
+      // 찾을 대상(1·5)만 귀에 남긴다. 나머지 박자는 공으로만 보인다. gap은 박자 유지가
+      // 목적이라 모든 박을 내되 여린 소리로. 볼륨은 엔진 마스터(0.55)가 다시 한 번 누른다.
+      const emphasized = c.count === 1 || c.count === 5;
+      if (c.time >= now - 0.01 && audibleAt(idx) && (gap || emphasized)) {
         const when = ctx.currentTime + (c.time - now) / rate;
         const lvl = c.count === 1 ? 0 : c.count === 5 ? 1 : 2;
-        const vol = c.count === 1 ? 1.0 : c.count === 5 ? 0.8 : 0.35;
+        const vol = c.count === 1 ? 0.9 : c.count === 5 ? 0.6 : 0.3;
         clickAt(when, lvl, vol);
       }
       clickState.nextIdx += 1;

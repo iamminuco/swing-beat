@@ -6,6 +6,18 @@
 //   OFF      → uniform
 // Browser-only; the caller owns the AudioContext and the layout.
 export function createClickEngine(getCtx) {
+  // 모든 클릭을 이 마스터 게인으로 모아 상한을 둔다(0.55). 안 그러면 매 박자 클릭이
+  // 음악과 합쳐지며 하드웨어 믹서에서 찢어진다(사용자 「1 찾기 음질 다 깨짐」 9/9).
+  let master = null, masterCtx = null;
+  function bus() {
+    const ctx = getCtx();
+    if (master && masterCtx === ctx) return master;
+    master = ctx.createGain();
+    master.gain.value = 0.55;
+    master.connect(ctx.destination);
+    masterCtx = ctx;
+    return master;
+  }
   // 예약했지만 아직 안 울린 노드. 정지·탐색·학습 종료 때 cancelPending()으로
   // 지운다 — 안 그러면 카운트음 지연 300ms일 때 이전 구간의 클릭이 뒤늦게 들린다.
   const live = new Set();
@@ -46,7 +58,7 @@ export function createClickEngine(getCtx) {
     gain.gain.setValueAtTime(0, when);
     gain.gain.linearRampToValueAtTime(vol, when + 0.003);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.035);
-    osc.connect(gain).connect(ctx.destination);
+    osc.connect(gain).connect(bus());
     osc.start(when);
     osc.stop(when + 0.05);
     track(osc, gain);
@@ -93,7 +105,7 @@ export function createClickEngine(getCtx) {
     gain.gain.setValueAtTime(0, when);
     gain.gain.linearRampToValueAtTime(volume, when + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.045);
-    osc.connect(gain).connect(ctx.destination);
+    osc.connect(gain).connect(bus());
     osc.start(when);
     osc.stop(when + 0.06);
     track(osc, gain);
