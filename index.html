@@ -216,6 +216,28 @@
 </style>
 </head>
 <body>
+<!-- 인앱 브라우저(카카오·네이버 등) 안내 — 파일 선택이 막힐 수 있어 외부 브라우저로 유도 -->
+<div id="inappWarn" style="display:none; position:fixed; top:0; left:0; right:0; z-index:100; background:#332a10; border-bottom:1px solid var(--yellow); color:#f2f1ec; padding:12px 14px; font-size:13px; line-height:1.6">
+  <b style="color:var(--yellow)">카카오·네이버 등 앱 안에서 열렸어요.</b> 여기선 곡을 못 넣을 수 있어요 — 오른쪽 위 메뉴(⋯)에서 <b>「다른 브라우저로 열기」</b>(크롬·사파리)를 눌러 주세요.
+  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+    <button id="inappCopy" style="padding:8px 14px; border-radius:10px; border:none; background:var(--yellow); color:var(--bg); font-size:13px; font-weight:700">링크 복사</button>
+    <button id="inappClose" style="padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:#fff; font-size:13px">그냥 볼게요</button>
+  </div>
+</div>
+
+<!-- 첫 실행 안내 — 이 앱이 뭐고 어떻게 쓰는지 3단계. 한 번 보면 다시 안 뜸 -->
+<div id="introOverlay" style="display:none; position:fixed; inset:0; z-index:99; background:var(--bg); flex-direction:column; align-items:center; justify-content:center; padding:28px; text-align:center; overflow:auto">
+  <div style="font-size:24px; font-weight:800; color:#fff; line-height:1.35">박자를 못 듣겠다면</div>
+  <div style="font-size:15px; color:var(--t1); margin-top:8px; margin-bottom:26px">이 앱이 노래의 박자를 대신 세어 줘요.<br>이렇게 세 걸음이면 돼요.</div>
+  <div style="text-align:left; max-width:330px; display:flex; flex-direction:column; gap:18px; width:100%">
+    <div style="display:flex; gap:12px; align-items:flex-start"><div style="flex:none; width:26px; height:26px; border-radius:50%; background:var(--yellow); color:var(--bg); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px">1</div><div><div style="color:#fff; font-weight:700; font-size:15px">곡을 넣어요</div><div style="color:var(--t2); font-size:13px; margin-top:2px">넣으면 앱이 박자를 자동으로 세어 줘요.</div></div></div>
+    <div style="display:flex; gap:12px; align-items:flex-start"><div style="flex:none; width:26px; height:26px; border-radius:50%; background:var(--yellow); color:var(--bg); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px">2</div><div><div style="color:#fff; font-weight:700; font-size:15px">아래 [학습] → 「박자 잡기」</div><div style="color:var(--t2); font-size:13px; margin-top:2px">노래의 「1」(여덟 박의 시작)이 어디인지 익혀요.</div></div></div>
+    <div style="display:flex; gap:12px; align-items:flex-start"><div style="flex:none; width:26px; height:26px; border-radius:50%; background:var(--yellow); color:var(--bg); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px">3</div><div><div style="color:#fff; font-weight:700; font-size:15px">「혼자 확인」으로 재보기</div><div style="color:var(--t2); font-size:13px; margin-top:2px">늘고 있는지 숫자로 보여줘요.</div></div></div>
+  </div>
+  <button id="introStart" style="margin-top:28px; padding:14px 30px; border-radius:14px; border:none; background:var(--yellow); color:var(--bg); font-size:16px; font-weight:700">시작하기</button>
+  <button id="introSkip" style="margin-top:10px; background:none; border:none; color:var(--t3); font-size:13px">다음에 볼게요</button>
+</div>
+
 <header hidden id="topBar">
   <div id="titleBox">
     <div id="songTitle">곡 제목</div>
@@ -387,6 +409,34 @@
 <div id="resultView" class="overlay" hidden></div>
 <div id="toast"></div>
 <audio id="au" preload="auto"></audio>
+<script>
+// 인앱 브라우저 감지 + 첫 실행 안내 — 모듈과 독립(파일 못 열어도 이 안내는 뜬다)
+(function () {
+  function $(id){ return document.getElementById(id); }
+  try {
+    var ua = navigator.userAgent || '';
+    // 한국서 링크가 자주 열리는 인앱 웹뷰들 + 안드로이드 웹뷰(; wv). 오탐해도 닫을 수 있는 안내라 무해.
+    var inApp = /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|FB_IAB|Line\/|DaumApps|Band\/|; wv\)/i.test(ua);
+    if (inApp && $('inappWarn')) $('inappWarn').style.display = 'block';
+  } catch (e) {}
+  var seen = null;
+  try { seen = localStorage.getItem('beatapp_seen_intro_v1'); } catch (e) {}
+  if (!seen && $('introOverlay')) $('introOverlay').style.display = 'flex';
+  function dismissIntro(){
+    if ($('introOverlay')) $('introOverlay').style.display = 'none';
+    try { localStorage.setItem('beatapp_seen_intro_v1', '1'); } catch (e) {}
+  }
+  if ($('introStart')) $('introStart').onclick = dismissIntro;
+  if ($('introSkip')) $('introSkip').onclick = dismissIntro;
+  if ($('inappClose')) $('inappClose').onclick = function(){ if ($('inappWarn')) $('inappWarn').style.display = 'none'; };
+  if ($('inappCopy')) $('inappCopy').onclick = function(){
+    var url = location.href, btn = $('inappCopy');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function(){ btn.textContent = '복사됨 ✓'; }, function(){ btn.textContent = '주소창에서 복사하세요'; });
+    } else { btn.textContent = '주소창에서 복사하세요'; }
+  };
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
 <script type="module" src="./ui/player.js"></script>
 </body>
