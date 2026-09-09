@@ -74,7 +74,10 @@ export function createClickEngine(getCtx) {
       const c = counts[state.nextIdx];
       if (c.time >= nowMusic - 0.01) {
         const when = ctx.currentTime + (c.time - nowMusic) / rate + opts.lagClickMs / 1000;
-        click(when, levelFor(c.count, opts.accent), opts.volume);
+        // 붐칙(P1): 1은 낮은 둠(베이스처럼), 나머지는 강세에 따른 틱. EVEN 강세면 2·4·6·8이 밝고
+        // 3·5·7이 여려서 "1=낮음, 2·4=높음"의 스윙 구조가 카운트음만으로 들린다(교수법 조사 #1).
+        if (c.count === 1) kick(when, opts.volume);
+        else click(when, levelFor(c.count, opts.accent), opts.volume);
       }
       state.nextIdx += 1;
     }

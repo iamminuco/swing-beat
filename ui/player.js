@@ -635,7 +635,10 @@ $('btnLoop').onclick = () => {
     ? (usesMarkers ? `반복: ${fmtTime(loopCur.start)}–${fmtTime(loopCur.end)}` : `반복: ${loopCur.label} · 「추가」로 표시 두 개를 찍으면 그 사이를 돌아요`)
     : '반복을 켰어요 · 「추가」로 표시 두 개를 찍으면 그 사이를 돌아요');
 };
-$('btnClick').onclick = () => { setClick(!clickOn); };
+$('btnClick').onclick = () => {
+  setClick(!clickOn);
+  if (clickOn) toast('1은 낮은 「둠」, 2·4는 밝게 — 낮은 소리가 나는 자리가 1이에요');
+};
 function setClick(on) {
   clickOn = on;
   $('btnClick').classList.toggle('on', clickOn);
