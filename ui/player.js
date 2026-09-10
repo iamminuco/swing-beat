@@ -846,8 +846,12 @@ $('speedPresets').innerHTML = PRESETS.map(v => `<button data-sp="${v}">${v}</but
 function setSpeed(pct, persist = true) {
   pct = Math.max(50, Math.min(100, pct));
   au.playbackRate = pct / 100;
-  au.preservesPitch = true;
-  au.webkitPreservesPitch = true;
+  // 음정 유지(preservesPitch)는 85% 아래로 늦추면 브라우저 타임스트레치가 "지지직"거린다(사용자 실보고 9/10).
+  // 연습(학습) 중 느릴 땐 음정 유지를 꺼 깨끗하게 — 음정만 살짝 내려가고 박자는 더 또렷하다.
+  // 일반 재생과 85% 이상에서는 음정을 그대로 유지한다.
+  const keepPitch = pct >= 85 || !learning;
+  au.preservesPitch = keepPitch;
+  au.webkitPreservesPitch = keepPitch;
   $('speed').value = pct;
   $('speedBig').innerHTML = `${pct}<span>%</span>`;
   $('speedLabel').textContent = pct + '%';
