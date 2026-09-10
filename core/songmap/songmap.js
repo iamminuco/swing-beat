@@ -10,7 +10,7 @@
 // there exactly. Moving the anchor (withOneAt, withOneShift) clears that
 // return point; tempo and phrase-length changes keep it — the return point is
 // a time, so "press again to go back" stays true across grid switches.
-import { layoutGrid, countAt } from '../analysis/analyze.js';
+import { layoutGrid, countAt, phaseVoteOffset } from '../analysis/analyze.js';
 import { migrateSongMap, MARKER_EPSILON } from './schema.js';
 
 function tempoBeats(analysis, manualTempo) {
@@ -44,7 +44,9 @@ export function effectiveGrid(map) {
   if (beats.length && anchor !== null) {
     offset = nearestIndex(beats, anchor);
   } else if (downbeats.length) {
-    offset = beats.indexOf(downbeats[0]);
+    // 첫 다운비트가 아니라 '다운비트 최빈 위상'을 격자 시작으로 — 스윙 백비트 착각 자동교정.
+    // buildGrid와 같은 함수를 써야 화면 카운트가 실제로 교정된다(2026-09-10 reviewer 치명결함 수리).
+    offset = phaseVoteOffset(beats, downbeats);
   }
   return { beats, downbeats, duration: map.song.duration, barPhase: { offset } };
 }

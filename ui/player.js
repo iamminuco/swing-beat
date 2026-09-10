@@ -831,6 +831,9 @@ function enterLearning() {
 }
 function leaveLearning() {
   learning = false;
+  // 학습 중 저속(85%↓)이면 음정유지를 꺼 뒀으므로, 일반 재생으로 돌아오면 현재 속도로 다시 적용해
+  // preservesPitch를 복원한다(learning=false라 keepPitch=true) — 안 그러면 음정 유지가 꺼진 채 남는다.
+  setSpeed(Math.round((au.playbackRate || 1) * 100), false);
   engine.cancelPending();
   resync();
 }

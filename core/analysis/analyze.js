@@ -32,6 +32,22 @@ function validateTimes(times, duration, name) {
 
 // Exact postprocessor beat/downbeat output, in seconds, on this PCM's clock.
 // Model metadata is required so a sample-rate/duration mismatch cannot hide.
+// 다운비트가 가장 많이 몰리는 4박 위상의 첫 다운비트를 격자 시작(count 1)으로 고른다.
+// 스윙은 2·4 백비트가 세서 모델이 백비트를 다운비트로 착각, '1' 위상이 통째로 어긋나는 곡이 있다
+// (실측 2026-09-10: Moon River 96%→4%, As Long As I Live 98%→5%). 규칙적인 곡은 첫 다운비트가 이미
+// 최빈 위상이라 첫 다운비트를 그대로 반환한다(잘 맞던 곡 회귀 없음). buildGrid와 런타임 effectiveGrid가
+// 같은 offset을 쓰도록 공용으로 둔다 — 한쪽만 바꾸면 화면 카운트가 교정 안 되고 경고만 억제된다.
+export function phaseVoteOffset(beats, downbeats) {
+  if (!downbeats || !downbeats.length) return null;
+  const dbIdx = downbeats.map(t => beats.indexOf(t)).filter(i => i >= 0);
+  if (!dbIdx.length) return null;
+  const votes = [0, 0, 0, 0];
+  for (const i of dbIdx) votes[((i % 4) + 4) % 4] += 1;
+  let best = ((dbIdx[0] % 4) + 4) % 4; // 동률이면 첫 다운비트 위상 유지 → 기존 동작 보존
+  for (let r = 0; r < 4; r++) if (votes[r] > votes[best]) best = r;
+  return dbIdx.find(i => ((i % 4) + 4) % 4 === best);
+}
+
 export function buildGrid(model, { sr, duration, firstOnset }) {
   if (!Number.isFinite(sr) || sr <= 0 || !Number.isFinite(duration) || duration < 0 ||
       (firstOnset !== null && (!Number.isFinite(firstOnset) || firstOnset < 0 || firstOnset >= duration))) {
@@ -90,22 +106,14 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   }
   const correctedSet = new Set(beats);
   const keptDownbeats = downbeats.filter(t => correctedSet.has(t));
-  // 스윙은 2·4 백비트가 세서 모델이 백비트를 다운비트로 착각, '1' 위상이 통째로 어긋나는 곡이 있다
-  // (실측 2026-09-10: Moon River 96%→4%, As Long As I Live 98%→5%). 첫 다운비트 하나에만 의존하지 말고,
-  // 다운비트가 가장 많이 몰리는 4박 위상을 격자 시작(1)으로 삼는다. 규칙적인 곡은 첫 다운비트가 이미
-  // 최빈 위상이라 offset·카운트가 그대로 유지된다(잘 맞던 곡 회귀 없음, 실측 확인). 앞 비트는 pickup 처리.
-  let offset = null;
-  if (keptDownbeats.length) {
-    const dbIdx = keptDownbeats.map(t => beats.indexOf(t));
-    const votes = [0, 0, 0, 0];
-    for (const i of dbIdx) votes[((i % 4) + 4) % 4] += 1;
-    const firstPhase = ((dbIdx[0] % 4) + 4) % 4;
-    let best = firstPhase; // 동률이면 첫 다운비트 위상 유지 → 기존 동작 보존
-    for (let r = 0; r < 4; r++) if (votes[r] > votes[best]) best = r;
-    offset = dbIdx.find(i => ((i % 4) + 4) % 4 === best);
-    if (best !== firstPhase) warnings.push('downbeat_phase_corrected');
-  } else if (beats.length) {
-    warnings.push('no_downbeat');
+  // 다운비트 최빈 위상으로 격자 시작(1)을 고른다 — 스윙 백비트 착각 자동교정(phaseVoteOffset).
+  // ★ 같은 함수를 런타임 effectiveGrid(songmap.js)도 반드시 써야 실제 화면 카운트가 교정된다
+  //   (여기 diagnostics 전용이 아니다 — 2026-09-10 reviewer가 런타임 미연결/경고억제 회귀를 잡음).
+  const offset = phaseVoteOffset(beats, keptDownbeats);
+  if (offset === null) {
+    if (beats.length) warnings.push('no_downbeat');
+  } else if (keptDownbeats.length && offset !== beats.indexOf(keptDownbeats[0])) {
+    warnings.push('downbeat_phase_corrected');
   }
   if (beats.length < 2) warnings.push('insufficient_beats');
   // Count integrity, not bar-length statistics: the 1..8 numbering is modular
