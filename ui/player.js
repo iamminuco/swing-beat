@@ -73,7 +73,16 @@ function ensureCtx() {
 }
 // iOS: 백그라운드에 갔다 오면 컨텍스트가 suspended로 남을 수 있다 — 화면·소리는 도는데
 // 카운트음만 안 나는 상태. 돌아올 때와 다음 터치에서 다시 깨운다.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && audioCtx) ensureCtx(); });
+// 백그라운드에선 AudioContext가 멈춰(suspended) ctx 시계가 얼어붙는다. 그동안 예약된 카운트음이
+// 같은 시점에 쌓였다가 복귀해서 resume되면 한꺼번에 터져 "지지직"이 난다(사용자 실보고 9/10 — 딴 앱 갔다
+// 크롬 다시 앞으로 → 재생 시 노이즈). 그래서: 숨을 때 예약을 비우고, 돌아올 때 ctx를 깨우고 다시 비운 뒤
+// 스케줄러 자리를 재정렬한다. (학습 화면은 자체 스케줄러라 예약 비움만 하면 다음 틱에서 스스로 다시 맞춘다.)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { engine.cancelPending(); return; }
+  if (audioCtx) ensureCtx();
+  engine.cancelPending();
+  if (!learning) resync();
+});
 document.addEventListener('pointerdown', () => { if (audioCtx && audioCtx.state === 'suspended') ensureCtx(); }, { passive: true });
 
 // 짝수 강세의 정본(시안 §6 ①): 음악 자체를 짝수 박에서 +3.5dB 키운다.
@@ -505,7 +514,7 @@ function updateLoop() {
 }
 
 setInterval(() => {
-  if (au.paused || !lay || learning || au.seeking) return;
+  if (au.paused || !lay || learning || au.seeking || document.hidden) return; // 백그라운드 중엔 예약 안 함(복귀 지지직 방지)
   const rate = au.playbackRate || 1;
   const t = au.currentTime;
   if (loopOn) {

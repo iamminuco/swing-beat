@@ -248,7 +248,7 @@ export function startBounce({
   }
 
   function scheduleClicks() {
-    if (closed || au.paused || checking) return; // 확인 중엔 소리 힌트를 걷는다(음악만 듣게)
+    if (closed || au.paused || checking || document.hidden) return; // 확인 중/백그라운드엔 예약 안 함(복귀 지지직 방지)
     const ctx = ensureCtx();
     const rate = getRate();
     const now = au.currentTime, horizon = now + 0.15 * rate;
