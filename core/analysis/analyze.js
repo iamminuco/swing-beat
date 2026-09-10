@@ -90,8 +90,23 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   }
   const correctedSet = new Set(beats);
   const keptDownbeats = downbeats.filter(t => correctedSet.has(t));
-  const offset = keptDownbeats.length ? beats.indexOf(keptDownbeats[0]) : null;
-  if (offset === null && beats.length) warnings.push('no_downbeat');
+  // 스윙은 2·4 백비트가 세서 모델이 백비트를 다운비트로 착각, '1' 위상이 통째로 어긋나는 곡이 있다
+  // (실측 2026-09-10: Moon River 96%→4%, As Long As I Live 98%→5%). 첫 다운비트 하나에만 의존하지 말고,
+  // 다운비트가 가장 많이 몰리는 4박 위상을 격자 시작(1)으로 삼는다. 규칙적인 곡은 첫 다운비트가 이미
+  // 최빈 위상이라 offset·카운트가 그대로 유지된다(잘 맞던 곡 회귀 없음, 실측 확인). 앞 비트는 pickup 처리.
+  let offset = null;
+  if (keptDownbeats.length) {
+    const dbIdx = keptDownbeats.map(t => beats.indexOf(t));
+    const votes = [0, 0, 0, 0];
+    for (const i of dbIdx) votes[((i % 4) + 4) % 4] += 1;
+    const firstPhase = ((dbIdx[0] % 4) + 4) % 4;
+    let best = firstPhase; // 동률이면 첫 다운비트 위상 유지 → 기존 동작 보존
+    for (let r = 0; r < 4; r++) if (votes[r] > votes[best]) best = r;
+    offset = dbIdx.find(i => ((i % 4) + 4) % 4 === best);
+    if (best !== firstPhase) warnings.push('downbeat_phase_corrected');
+  } else if (beats.length) {
+    warnings.push('no_downbeat');
+  }
   if (beats.length < 2) warnings.push('insufficient_beats');
   // Count integrity, not bar-length statistics: the 1..8 numbering is modular
   // from the first downbeat, so ONE odd-length bar shifts every later count,
