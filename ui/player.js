@@ -202,7 +202,7 @@ async function openFile(file, prefix = '') {
     if (!fresh) toast('저장된 박자 설정을 불러왔어요');
     // 보정 시트를 먼저 들이밀지 않는다 — 우선 들려주고, 어긋날 때만 안내한다.
     if (fresh && map.analysis.warnings.includes('count_drift_needs_review')) {
-      toast('중간에 카운트가 어긋나게 들리면 곡 제목을 눌러 「지금 이 순간이 1이에요」를 한 번 눌러 주세요');
+      toast('중간에 박자가 어긋나게 들리면, 카운트 아래 「여기가 1」을 그 순간에 눌러 주세요 — 거기부터 다시 맞아요');
     }
   } catch (err) {
     analyzing.delete(file.name);
@@ -759,6 +759,7 @@ function fixOneHere() {
   applyMap(next, '좋아요 — 여기부터 1로 다시 세요');
 }
 $('fxHere').onclick = fixOneHere;
+$('fxHereHud').onclick = fixOneHere; // 재생 화면 카운트 아래 상시 버튼(밀렸을 때 바로)
 $('fxGlobalHere').onclick = () => applyMap(withOneAt(map, au.currentTime), '곡 전체의 1을 여기로 옮겼어요');
 $('fxUndoSection').onclick = () => {
   const s = map.corrections.sectionOnes;
