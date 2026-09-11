@@ -11,11 +11,12 @@
 import { prepareFilterbank, logMelSpect } from '../core/analysis/logmel.js';
 import { chunkStarts, extractChunk, aggregate, CHUNK_SIZE, MIN_FRAMES } from '../core/analysis/chunking.js';
 import { pickBeats } from '../core/analysis/postprocess.js';
-import { analyze, countAt } from '../core/analysis/analyze.js';
+import { analyze, countAt, GRID_ENGINE } from '../core/analysis/analyze.js';
 import { createSongMap, songKey } from '../core/songmap/schema.js';
 import {
   layout, withOneShift, withOneFiveSwap, withOneAt, withSectionOne, withoutSectionOne,
   withPhraseLen, withManualTempo, withMarker, withoutMarker, tempoBpm, songTrust,
+  refreshAnalysis,
 } from '../core/songmap/songmap.js';
 import { prevMarker, nextMarker, loopRange, markerNear } from '../core/songmap/navigate.js';
 import { saveSongMap, loadSongMap, listSongMaps } from '../storage/songstore.js';
@@ -153,29 +154,82 @@ async function analyseSamples(pcm, progress) {
   return { sr: MODEL_SR, duration, beats, downbeats: picked.downbeats.filter(t => kept.has(t)) };
 }
 
+// 저장된 곡의 격자 엔진(analysis.engine)이 지금 앱보다 옛것이면 같은 PCM으로 다시 분석해 저장한다.
+// 사용자의 직접 맞춘 1·구간 1·마커·설정은 그대로(refreshAnalysis). codex 2026-09-11 지적: 저장곡은 분석을
+// 건너뛰어 글리치 필터·템포 게이트 수리가 기존 곡에 하나도 적용되지 않았다.
+// codex 2차 게이트: (1) 뒤늦게 끝난 옛 요청이 저장하면 그새 사용자가 고친 마커를 지운다 → 저장 전에 isCurrent 확인,
+// 그리고 저장 직전에 최신 지도를 다시 읽어 '그 위에' 새 분석을 입힌다. (2) 보정이 있던 곡은 확인을 부탁한다.
+function hasUserJudgments(m) {
+  const c = m.corrections;
+  return c.oneAnchorTime !== null || c.sectionOnes.length > 0 || c.manualTempo !== null || m.markers.length > 0;
+}
+function refreshToast(m) {
+  return hasUserJudgments(m)
+    ? '박자 엔진이 새로워져 다시 분석했어요 — 직접 맞춘 자리는 남겼지만 카운트를 한 번 확인해줘'
+    : '박자 엔진이 새로워져 다시 분석했어요';
+}
+async function refreshIfStale(m, pcm, progress, isCurrent = () => true) {
+  if (m.analysis.engine === GRID_ENGINE) return { m, refreshed: false };
+  let grid;
+  try {
+    await ensureModel(progress);
+    progress('박자 엔진이 새로워져 다시 분석 중…');
+    grid = analyze(pcm, MODEL_SR, await analyseSamples(pcm, progress));
+  } catch (err) {
+    // 재분석이 실패해도 옛 격자로는 열 수 있어야 한다(codex 4차 P1: 모델 로드 실패가 저장곡 열기를 막았다)
+    if (isCurrent()) toast('박자 재분석에 실패해 예전 분석으로 열어요: ' + (err?.message || err)); // 취소된 요청은 새 곡 안내를 덮지 않는다
+    return { m, refreshed: false, failed: true };
+  }
+  if (!isCurrent()) return { m, refreshed: false, failed: false }; // 더 새 요청이 앞섰다 — 아무것도 저장하지 않는다
+  const latest = loadSongMap(m.song) ?? m; // 분석하는 동안 사용자가 고쳤을 수 있다
+  if (latest.analysis.engine === GRID_ENGINE) return { m: latest, refreshed: false, failed: false }; // 다른 요청이 이미 갱신했다
+  try {
+    return { m: saveSongMap(refreshAnalysis(latest, grid)), refreshed: true, failed: false };
+  } catch (err) {
+    // 저장 실패(용량 부족 등)도 열기를 막으면 안 된다(codex 5차 P1) — 옛 지도로 연다
+    toast('새 분석을 저장하지 못해 예전 분석으로 열어요: ' + (err?.message || err));
+    return { m: latest, refreshed: false, failed: true };
+  }
+}
+
 // 곡 하나를 분석해 SongMap을 저장한다(이미 저장돼 있으면 즉시). UI는 안 건드린다.
-async function analyzeAndSave(file, progress) {
+async function analyzeAndSave(file, progress, isCurrent = () => true) {
   const { samples: pcm, duration } = await decodeToModelRate(file);
   const song = { name: file.name, size: file.size, duration };
   let m = loadSongMap(song);
-  let fresh = false;
+  let fresh = false, refreshed = false, failed = false;
   if (!m) {
     await ensureModel(progress);
     const model = await analyseSamples(pcm, progress);
-    m = createSongMap(song, analyze(pcm, MODEL_SR, model));
-    saveSongMap(m);
-    fresh = true;
+    const grid = analyze(pcm, MODEL_SR, model);
+    // 같은 곡을 동시에 두 번 분석하면(목록 일괄+열기) 늦게 끝난 쪽이 먼저 저장된 지도와 그새 찍은 마커를
+    // 덮어쓴다(codex 4차 P1). 저장 직전에 다시 확인: 이미 있으면 그걸 쓰고, 옛 엔진이면 그 위에 입힌다.
+    const latest = loadSongMap(song);
+    if (latest) {
+      m = latest.analysis.engine === GRID_ENGINE ? latest : saveSongMap(refreshAnalysis(latest, grid));
+      refreshed = m !== latest;
+    } else {
+      m = saveSongMap(createSongMap(song, grid));
+      fresh = true;
+    }
+  } else {
+    ({ m, refreshed, failed } = await refreshIfStale(m, pcm, progress, isCurrent));
   }
   const stored = await saveAudio(songKey(m.song), file); // 기기 안 저장 — 다음에 열 때 파일 재선택 불요
-  if (!stored) toast(`「${baseName(file.name)}」 파일을 기기에 저장하지 못했어요(용량 부족?) — 다음엔 다시 골라야 해요`);
-  return { m, pcm, fresh };
+  if (!stored) { // 재분석 실패 안내가 있었으면 한 토스트로 합친다(codex 6차: 뒤 토스트가 앞 안내를 덮었다)
+    toast((failed ? '예전 분석으로 열었고, ' : '') +
+      `「${baseName(file.name)}」 파일을 기기에 저장하지 못했어요(용량 부족?) — 다음엔 다시 골라야 해요`);
+  }
+  return { m, pcm, fresh, refreshed, failed };
 }
 
 // 재생 화면에 곡을 올린다(파일이든 저장 blob이든 공통).
 function mountSong(m, pcm, blob) {
   clearTimeout(countInTimer); countInTimer = null;
   queue = queue.length ? queue : []; // 연속 재생 큐는 호출자가 관리
-  map = m;
+  // 저장소가 정본이다: 파일 저장(saveAudio)을 기다리는 사이 사용자가 같은 곡에 마커를 찍었으면 그게 최신이고,
+  // 여기서 옛 m을 올리면 다음 편집 저장이 그 마커를 지운다(codex 3차 P1, 기존 경합).
+  map = loadSongMap(m.song) ?? m;
   samples = pcm;
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(blob);
@@ -195,11 +249,12 @@ async function openFile(file, prefix = '') {
   try {
     progress('곡 읽는 중…');
     analyzing.add(file.name);
-    const { m, pcm, fresh } = await analyzeAndSave(file, progress);
+    const { m, pcm, fresh, refreshed, failed } = await analyzeAndSave(file, progress, () => seq === openSeq);
     analyzing.delete(file.name);
     if (seq !== openSeq) return; // 그새 다른 곡을 골랐다 — 저장만 하고 화면은 안 바꾼다
     mountSong(m, pcm, file);
-    if (!fresh) toast('저장된 박자 설정을 불러왔어요');
+    if (refreshed) toast(refreshToast(m)); // 재분석 안내가 '불러왔어요'에 덮이지 않게 뒤에, 그리고 하나만
+    else if (!fresh && !failed) toast('저장된 박자 설정을 불러왔어요'); // 실패 안내도 덮지 않는다(codex 5차)
     // 보정 시트를 먼저 들이밀지 않는다 — 우선 들려주고, 어긋날 때만 안내한다.
     if (fresh && map.analysis.warnings.includes('count_drift_needs_review')) {
       toast('중간에 박자가 어긋나게 들리면, 카운트 아래 「여기가 1」을 그 순간에 눌러 주세요 — 거기부터 다시 맞아요');
@@ -226,12 +281,13 @@ async function openFiles(files) {
   const rest = mountFirst ? files.slice(1) : files;
   for (const f of rest) analyzing.add(f.name);
   renderList();
-  let prepared = 0;
+  let prepared = 0, stale = 0;
   for (let i = 0; i < rest.length; i++) {
     const label = `${i + 1}/${rest.length}곡 「${baseName(rest[i].name)}」 `;
     try {
-      await analyzeAndSave(rest[i], t => toast(label + t));
+      const r = await analyzeAndSave(rest[i], t => toast(label + t));
       prepared += 1;
+      if (r.failed) stale += 1; // 재분석에 실패해 예전 분석으로 남은 곡(codex 6차: 완료 토스트가 실패 안내를 덮었다)
     } catch (err) {
       toast(label + '분석 실패: ' + (err?.message || err));
       await new Promise(r => setTimeout(r, 1600));
@@ -239,7 +295,7 @@ async function openFiles(files) {
     analyzing.delete(rest[i].name);
     renderList();
   }
-  if (rest.length) toast(`${prepared}곡 준비 완료 — 목록에서 바로 열려요`);
+  if (rest.length) toast(`${prepared}곡 준비 완료 — 목록에서 바로 열려요` + (stale ? ` (${stale}곡은 재분석 실패로 예전 분석 그대로)` : ''));
 }
 
 // ── SongMap 갱신 → 화면 재구성 ────────────────────────────────────
@@ -949,7 +1005,7 @@ async function renderList() {
       const seq = ++openSeq;
       const blob = await loadAudio(key);
       if (seq !== openSeq || !blob) return;
-      if (await openStored(m, blob, seq)) play();
+      if ((await openStored(m, blob, seq)).ok) play();
     };
     box.appendChild(row);
   }
@@ -974,8 +1030,9 @@ async function playQueued(i) {
   const blob = await loadAudio(songKey(m.song));
   if (seq !== openSeq) return;
   if (!blob) { toast(`「${baseName(m.song.name)}」 파일이 없어 건너뛰어요`); if (i + 1 < queue.length) playQueued(i + 1); return; }
-  if (await openStored(m, blob, seq)) {
-    toast(`${i + 1}/${queue.length} · ${baseName(m.song.name)}`);
+  const r = await openStored(m, blob, seq);
+  if (r.ok) {
+    if (!r.refreshed && !r.failed) toast(`${i + 1}/${queue.length} · ${baseName(m.song.name)}`); // 재분석·실패 안내를 덮지 않는다
     play();
   }
 }
@@ -1142,19 +1199,22 @@ function showResult(listening, st) {
 
 // ── 저장된 곡 즉시 열기 + 마지막 곡 자동 복원 ────────────────────
 // seq = 이 열기 요청의 번호. 디코딩하는 사이 더 새 요청이 생겼으면 화면을 바꾸지 않는다.
-async function openStored(m, blob, seq = ++openSeq) {
+async function openStored(stored, blob, seq = ++openSeq) {
   const progress = t => { if (seq === openSeq) $('progress').textContent = t; };
   try {
     progress('이어서 여는 중…');
     const { samples: pcm } = await decodeToModelRate(blob);
-    if (seq !== openSeq) return false;
+    if (seq !== openSeq) return { ok: false, refreshed: false, failed: false };
+    const { m, refreshed, failed } = await refreshIfStale(stored, pcm, progress, () => seq === openSeq); // 옛 엔진 격자면 여기서 새로 분석
+    if (seq !== openSeq) return { ok: false, refreshed, failed };
+    if (refreshed) toast(refreshToast(m));
     mountSong(m, pcm, blob);
     progress('');
-    return true;
+    return { ok: true, refreshed, failed }; // failed = 재분석/저장 실패로 옛 지도로 열었다(안내 토스트 이미 표시)
   } catch (err) {
     progress('');
     toast('여는 데 실패했어요: ' + (err?.message || err));
-    return false;
+    return { ok: false, refreshed: false, failed: false };
   }
 }
 
@@ -1167,8 +1227,8 @@ async function restoreLastSong() {
   const seq = ++openSeq;
   const blob = await loadAudio(key);
   if (!blob || seq !== openSeq) return; // 그새 사용자가 다른 곡을 골랐다
-  const ok = await openStored(m, blob, seq);
-  if (ok) toast('이어서: ' + baseName(m.song.name));
+  const r = await openStored(m, blob, seq);
+  if (r.ok && !r.refreshed && !r.failed) toast('이어서: ' + baseName(m.song.name)); // 재분석·실패 안내를 덮지 않는다(codex 4·5차)
 }
 requestPersistence();
 restoreLastSong();

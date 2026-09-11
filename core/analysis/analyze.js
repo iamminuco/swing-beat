@@ -1,5 +1,11 @@
 import { inspectSignal } from './signal.js';
 
+// 격자 엔진 버전 — buildGrid의 후처리 규칙이 바뀌면 올린다. 저장된 SongMap의 analysis.engine이 이 값과
+// 다르면 앱이 곡을 열 때 다시 분석한다(사용자의 1·마커·설정은 유지). codex 2026-09-11: 저장곡은 analyze()를
+// 건너뛰어 글리치 필터·템포 게이트 수리가 기존 곡에 전혀 적용되지 않았다.
+//   1 = 첫 다운비트 앵커(9/7) · 2 = 다운비트 최빈 위상 투표(9/10) · 3 = 글리치 박 필터 + 템포 증거 게이트(9/11)
+export const GRID_ENGINE = 3;
+
 function median(values) {
   if (!values.length) return null;
   const a = [...values].sort((x, y) => x - y), mid = Math.floor(a.length / 2);
@@ -91,6 +97,8 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   beats = glitch.beats;
   const retained = new Set(beats);
   const downbeats = model.downbeats.filter(t => retained.has(t));
+  // 놓친 박 채우기(간격 2~4배에 합성 박)는 2026-09-11 실측으로 기각: GTZAN 83곡 A4 4곡↑ 4곡↓(상쇄),
+  // 수업곡 12곡의 후보 5개는 전부 곡 끝 리타르단도(206~266초)였고 중간 놓침은 0개였다. 넣지 마라.
   const rawIntervals = intervals(beats), med = median(rawIntervals);
   const rawBpm = med === null ? null : 60 / med;
   const warnings = [];
@@ -98,6 +106,7 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   const rawIndices = downbeats.map(t => beats.indexOf(t));
   const bars = intervals(rawIndices);
   const twoBeatRatio = bars.length ? bars.filter(n => n === 2).length / bars.length : null;
+  const eightBeatRatio = bars.length ? bars.filter(n => n === 8).length / bars.length : null;
   if (twoBeatRatio > 0.4) warnings.push('possible_double_tempo');
   // 12-song reference run (2026-09-07): every real song has a stray non-4 bar
   // (clean songs 0.8~9%), while the three songs the user flagged as shaky bars
@@ -114,17 +123,39 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
       warnings.push('tempo_changes_need_review');
     }
   }
+  // 템포 두 배/절반은 BPM 범위(110~290)만으로 정하지 않는다 — 모델 자신의 마디 증거가 있어야 한다.
+  // 실측 2026-09-11 GTZAN 재즈 83곡(정답 있음): 범위만 보던 옛 규칙이 33곡을 두 배로 만들었는데
+  // 그중 27곡은 모델 템포가 이미 정답이었고(규칙이 망침), 진짜 절반 템포였던 5곡은 모두 모델 마디가
+  // 2박(twoBeatRatio 0.61~0.96)이었다. 즉 "느린데 마디가 2박" = 모델 박 층이 2분음표 → 두 배가 맞고,
+  // "느린데 마디가 4박" = 그냥 느린 곡 → 건드리면 안 된다. 절반도 같은 논리(마디가 8박일 때만).
+  // 수업곡 12곡은 전부 범위 안이라 이 규칙에 걸린 적이 없다(변화 없음).
+  // 최소 증거: 마디 간격 4개 이상(codex 2026-09-11 반례 — 다운비트 2개, 간격 1개짜리 비율 1.0으로 곡 전체를 두 배로 만들 수 있었다).
+  // 0.6은 원칙이 아니라 GTZAN 83곡에서 고른 경험 임계다(같은 곡셋에서 골라 재서 독립 검증 아님). 대조군(자동 변환 전부 끔):
+  // 곡별 위상 65 vs 62로 3곡 유리하지만 박별 A4 recall 67.8 vs 71.5%·coverage 85.7 vs 88.8%·tempo_ok 66 vs 68로 불리 —
+  // 곡별 위상 잣대는 절반 속도로 세도 1/5만 정답 1에 얹히면 통과하는 맹점이 있어 박별 잣대를 우선했다(판단, 가설).
+  // 2박(또는 8박) 마디가 곡의 박 간격 절반 이상을 실제로 덮어야 한다 — 비율·최소 개수·첫~끝 span만으로는
+  // 앞 5초에만 몰린 2박 마디 4개 + 끝에 다운비트 1개([0,2,4,6,8,63])가 전곡을 두 배로 만들었다(codex 3차 반례).
+  // 30%는 앞 30%에만 2박 마디가 있는 [0,2,…,30,100]을 못 막았다(codex 4차) → 50%. GTZAN 실측: 두 배가 맞는 곡의
+  // 커버리지 0.76~0.94, 오발동 2곡은 0.50·0.93 — 임계로 오발동을 가를 수는 없고, 국소 오검출만 막는 가드다.
+  const TEMPO_EVIDENCE = 0.6, TEMPO_MIN_BARS = 4, TEMPO_MIN_COVERAGE = 0.5;
+  const spanOf = n => beats.length > 1 ? n * bars.filter(b => b === n).length / (beats.length - 1) : 0;
+  const twoBeatCoverage = spanOf(2), eightBeatCoverage = spanOf(8);
   let tempoFactor = 1;
-  if (rawBpm !== null && rawBpm < 110 && rawBpm * 2 >= 110 && rawBpm * 2 <= 290) {
+  if (rawBpm !== null && rawBpm < 110 && rawBpm * 2 >= 110 && rawBpm * 2 <= 290 &&
+      bars.length >= TEMPO_MIN_BARS && twoBeatRatio >= TEMPO_EVIDENCE && twoBeatCoverage >= TEMPO_MIN_COVERAGE) {
     // Inserted midpoints are synthetic, not model output — say so out loud.
     tempoFactor = 2;
     warnings.push('tempo_doubled');
     beats = beats.flatMap((t, i) => i + 1 < beats.length ? [t, (t + beats[i + 1]) / 2] : [t]);
-  } else if (rawBpm !== null && rawBpm > 290 && rawBpm / 2 >= 110 && rawBpm / 2 <= 290) {
-    // Keep the first known bar start when choosing which alternating beats survive.
+  } else if (rawBpm !== null && rawBpm > 290 && rawBpm / 2 >= 110 && rawBpm / 2 <= 290 &&
+             bars.length >= TEMPO_MIN_BARS && eightBeatRatio >= TEMPO_EVIDENCE && eightBeatCoverage >= TEMPO_MIN_COVERAGE) {
+    // 살아남을 홀/짝은 '첫 다운비트'가 아니라 다운비트 다수의 홀짝으로 고른다 — 첫 다운비트만 따르면
+    // 첫 마디가 9박인 곡에서 다운비트 12개 중 11개를 버렸다(codex 2026-09-11, 옛 테스트가 그 위험을 보여주고 있었다).
     tempoFactor = 0.5;
     warnings.push('tempo_halved');
-    beats = beats.filter((_, i) => i % 2 === (rawIndices.length ? rawIndices[0] % 2 : 0));
+    const odd = rawIndices.filter(i => i % 2 === 1).length;
+    const parity = odd > rawIndices.length - odd ? 1 : 0; // 동률이면 짝수(첫 박 보존)
+    beats = beats.filter((_, i) => i % 2 === parity);
   } else if (rawBpm !== null && (rawBpm < 110 || rawBpm > 290)) {
     warnings.push('tempo_out_of_range');
   }
@@ -162,6 +193,7 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   if (misalignedDownbeatRatio > 0.05) warnings.push('count_drift_needs_review');
   const local = intervals(beats);
   return {
+    engine: GRID_ENGINE,
     sr, duration, firstOnset, beats, downbeats: keptDownbeats,
     // The engine's recorded proposal for 1 (provenance; the model cannot
     // resolve musical 1 vs 5). Runtime corrections live in the SongMap.
@@ -169,7 +201,7 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
     bpm: fittedBpm(beats),
     tempoCurve: local.map((dt, i) => ({ time: beats[i], bpm: 60 / dt })),
     tempoFactor, diagnostics: {
-      rawBpm, frontBpm, backBpm, twoBeatRatio, irregularBarRatio,
+      rawBpm, frontBpm, backBpm, twoBeatRatio, eightBeatRatio, twoBeatCoverage, eightBeatCoverage, irregularBarRatio,
       misalignedDownbeatRatio, firstDriftTime, warnings,
     },
   };

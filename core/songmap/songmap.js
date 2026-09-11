@@ -11,7 +11,7 @@
 // return point; tempo and phrase-length changes keep it — the return point is
 // a time, so "press again to go back" stays true across grid switches.
 import { layoutGrid, countAt, phaseVoteOffset } from '../analysis/analyze.js';
-import { migrateSongMap, MARKER_EPSILON } from './schema.js';
+import { migrateSongMap, createSongMap, MARKER_EPSILON } from './schema.js';
 
 function tempoBeats(analysis, manualTempo) {
   let beats = analysis.beats;
@@ -100,9 +100,35 @@ export function layout(map) {
 //   서로 다른 자동도구도 스윙 백비트를 함께 착각할 수 있어 자기인증이 불가능하기 때문
 //   (2026-09-11 codex+deep-reasoner 교차검증 결론). 그래서 여기선 앱이 아는 위험신호
 //   (저장된 warnings)로 '확신/불확신'만 정직히 낸다. 어떤 곡이든 앱 내부값만으로 계산.
+// 사용자 앵커(직접 맞춘 1·구간 1)가 지금 격자의 박 위에 있지 않은가 — 재분석·반/두 배 전환 뒤 생길 수 있다.
+// 저장 경고가 아니라 볼 때마다 계산한다: 사용자가 「한 박」으로 다시 맞추면 앵커가 박 위에 얹혀 저절로 풀린다
+// (codex 3차: 저장 경고는 해제 경로가 없었다). 판정은 앵커 옆 국소 박간격의 1/4(전곡 중앙값이면 국소 빠른 구간을 놓친다).
+export function anchorsOffGrid(map, beats = effectiveGrid(map).beats) {
+  const c = map.corrections ?? {};
+  const anchors = [c.oneAnchorTime, ...(c.sectionOnes ?? [])].filter(t => t !== null && t !== undefined);
+  if (!anchors.length) return false;
+  if (beats.length < 2) return true; // 얹힐 격자가 없다
+  return anchors.some(t => {
+    const i = nearestIndex(beats, t);
+    // 국소 간격 = 앵커가 실제로 든 구간(codex 4차: 반대쪽 긴 간격을 쓰면 [0,1,1.4,1.8]의 1.12를 놓친다)
+    const after = i + 1 < beats.length ? beats[i + 1] - beats[i] : null;
+    const before = i > 0 ? beats[i] - beats[i - 1] : null;
+    const local = t >= beats[i] ? (after ?? before) : (before ?? after);
+    return Math.abs(beats[i] - t) > 0.25 * local;
+  });
+}
+
 export function songTrust(map) {
   const w = new Set(map.analysis?.warnings ?? []);
-  const { barPhase: { offset } } = effectiveGrid(map);
+  const { beats, barPhase: { offset } } = effectiveGrid(map);
+  if (w.has('manual_tempo_clamped')) {
+    return { level: 'caution', label: '🔴 확인 필요',
+      detail: '엔진이 새로워지면서 네가 고른 반/두 배를 그대로 옮길 수 없었어(4배·¼배는 앱에 없어). 곡 정보에서 반/두 배를 다시 골라줘 — 고르면 이 표시는 사라져.' };
+  }
+  if (anchorsOffGrid(map, beats)) {
+    return { level: 'caution', label: '🔴 확인 필요',
+      detail: '네가 직접 맞춘 자리가 지금 격자의 박 위에 있지 않아(엔진이 새로워졌거나 반/두 배를 바꿨을 때 생겨). 카운트 보며 「한 박」으로 다시 맞춰줘.' };
+  }
   if (map.corrections?.oneAnchorTime != null) {
     return { level: 'manual', label: '✋ 직접 맞춤',
       detail: '네가 「한 박」 버튼으로 직접 맞춘 곡이야.' };
@@ -191,8 +217,12 @@ export function withOneFiveSwap(map) {
 // The anchor is a time, so switching half/double and back recovers the exact
 // user correction; the visible 1 snaps to the nearest beat of the new grid.
 export function withManualTempo(map, manualTempo) {
-  if (manualTempo === map.corrections.manualTempo) return map;
-  return withCorrections(map, { manualTempo });
+  const clamped = map.analysis.warnings.includes('manual_tempo_clamped');
+  if (manualTempo === map.corrections.manualTempo && !clamped) return map;
+  // 'manual_tempo_clamped'는 분석이 아니라 보정에 대한 경고라, 사용자가 반/두 배를 (같은 값이라도) 다시 고르면
+  // 여기서 지운다(analysis.warnings를 편집하는 유일한 예외 — codex 4·5차: 해제 경로가 없었다).
+  const warnings = map.analysis.warnings.filter(w => w !== 'manual_tempo_clamped');
+  return updated(map, { analysis: { ...map.analysis, warnings }, corrections: { ...map.corrections, manualTempo } });
 }
 
 export function withPhraseLen(map, phraseLen) {
@@ -206,10 +236,13 @@ export function withSectionOne(map, time) {
   if (!Number.isFinite(time)) throw new TypeError('Section time must be finite');
   const { beats, barPhase: { offset } } = effectiveGrid(map);
   if (offset === null) return map; // a section restart needs a primary 1 first
-  const snapped = beats[nearestIndex(beats, time)];
+  const idx = nearestIndex(beats, time);
+  const snapped = beats[idx];
   if (snapped <= beats[offset]) return map;
+  // 같은 박에 얹히는 옛 구간 앵커(재분석 뒤 격자에서 벗어난 시각 포함)는 새 앵커로 대체한다 —
+  // 시각만 비교하면 10.25(이탈)와 10.0(새로 찍음)이 둘 다 남아 「확인 필요」가 안 풀린다(codex 4차).
   const sectionOnes = [
-    ...map.corrections.sectionOnes.filter(t => Math.abs(t - snapped) >= MARKER_EPSILON),
+    ...map.corrections.sectionOnes.filter(t => Math.abs(t - snapped) >= MARKER_EPSILON && nearestIndex(beats, t) !== idx),
     snapped,
   ];
   return withCorrections(map, { sectionOnes });
@@ -232,4 +265,42 @@ export function withMarker(map, time, name) {
 
 export function withoutMarker(map, time) {
   return updated(map, { markers: map.markers.filter(m => !sameMarkerTime(m.time, time)) });
+}
+
+// ── 저장된 곡을 새 엔진으로 다시 분석한 결과를 입힌다 (codex 2026-09-11 1차 Q5·2차 P1-2/P1-3) ──
+// 분석(analysis)만 교체하고 사용자의 판단(직접 맞춘 1·구간 1·마커·프레이즈·강세·속도·루프·지연)은 그대로 둔다.
+// ① 수동 반/두 배는 '옛 격자 기준 상대 배율'이라 그대로 복사하면 틀린다(옛 자동 2배 + 수동 half = 정답 96을,
+//    새 자동 1배에 half를 또 적용하면 48). 사용자가 실제로 맞춘 박 층 = 옛 자동배율×수동배율을 새 자동배율 아래서 유지한다.
+// ② 앵커는 시각으로 저장되니 살아남지만, 앵커가 얹혀 있던 박이 새 격자에 없으면(합성 박·글리치 박) 가장 가까운 박으로
+//    옮겨진다 — 그 거리가 국소 박간격의 1/4을 넘으면 songTrust(anchorsOffGrid)가 볼 때마다 「확인 필요」를 띄운다.
+const MANUAL_FACTOR = { half: 0.5, double: 2 };
+function manualTempoFor(factor) { return factor === 2 ? 'double' : factor === 0.5 ? 'half' : null; }
+
+export function refreshAnalysis(map, grid) {
+  const built = createSongMap(map.song, grid);
+  const warnings = [...built.analysis.warnings];
+  // 재조준은 사용자가 반/두 배를 '직접 눌렀을 때만'. 무보정 곡에 옛 자동 배율을 되살리면 새 엔진이 고친
+  // 오판(옛 자동 2배)을 수동 double로 부활시킨다(codex 3차 P1: 96 BPM 곡이 재분석 뒤 192).
+  let manualTempo = null;
+  if (map.corrections.manualTempo !== null) {
+    const wanted = (map.analysis.tempoFactor ?? 1) * MANUAL_FACTOR[map.corrections.manualTempo]
+      / (built.analysis.tempoFactor ?? 1);
+    manualTempo = wanted === 1 ? null : manualTempoFor(wanted);
+    if (wanted !== 1 && manualTempo === null) { // 1/4·4배는 표현 불가 — 가장 가까운 쪽으로 두고 알린다
+      manualTempo = wanted > 1 ? 'double' : 'half';
+      warnings.push('manual_tempo_clamped');
+    }
+  }
+  const next = migrateSongMap({
+    ...built,
+    analysis: { ...built.analysis, warnings },
+    corrections: { ...map.corrections, manualTempo },
+    markers: [...map.markers],
+    phraseLen: map.phraseLen, accent: map.accent, rate: map.rate,
+    loop: map.loop === null ? null : { ...map.loop },
+    latency: { ...map.latency },
+  });
+  // 앵커 이탈은 저장 경고가 아니다 — songTrust가 anchorsOffGrid로 볼 때마다 계산한다(다시 맞추면 풀림).
+  // oneFiveReturnTime은 시각이라 그대로 두며, 다시 누르면 새 격자의 가장 가까운 박에 얹힌다.
+  return next;
 }
