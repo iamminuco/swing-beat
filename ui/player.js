@@ -760,6 +760,11 @@ function fixOneHere() {
 }
 $('fxHere').onclick = fixOneHere;
 $('fxHereHud').onclick = fixOneHere; // 재생 화면 카운트 아래 상시 버튼(밀렸을 때 바로)
+// 귀로 못 듣는 사용자용 — 화면 숫자가 한 박 어긋나면 눈으로 보고 한 칸씩. withOneShift는
+// oneAnchorTime을 저장하고 effectiveGrid가 그 anchor를 읽어 화면·소리(같은 layout.counts)를
+// 동시에 교정한다. 곡별 1회 저장이라 다시 열어도 유지된다.
+$('fxBackHud').onclick = () => applyMap(withOneShift(map, -1), '1을 한 박자 앞으로');
+$('fxFwdHud').onclick = () => applyMap(withOneShift(map, 1), '1을 한 박자 뒤로');
 $('fxGlobalHere').onclick = () => applyMap(withOneAt(map, au.currentTime), '곡 전체의 1을 여기로 옮겼어요');
 $('fxUndoSection').onclick = () => {
   const s = map.corrections.sectionOnes;

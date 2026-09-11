@@ -59,6 +59,12 @@
                padding:0 16px; border-radius:19px; border:1px solid var(--yellow); background:transparent;
                color:var(--yellow); font-size:13px; font-weight:700; }
   #fxHereHud span { font-size:11px; color:var(--t2); }
+  /* 박자가 한 박 어긋날 때 — 귀로 못 들어도 화면 숫자 보고 한 칸씩 민다. 화면·소리는 같은
+     격자(layout.counts) 하나라 한 번 밀면 둘 다 같이 교정된다. flex:none = 전역 button flex:1 방지. */
+  #fxNudge { display:flex; align-items:center; justify-content:center; gap:8px; margin:8px auto 0; }
+  #fxNudge span { font-size:11px; color:var(--t3); white-space:nowrap; }
+  #fxNudge button { flex:none; height:34px; padding:0 15px; border-radius:17px; border:1px solid var(--line);
+                    background:transparent; color:var(--t1); font-size:13px; font-weight:600; white-space:nowrap; }
 
   /* ── 타임라인 ── */
   #tlHead { display:flex; justify-content:space-between; align-items:baseline; padding:8px 16px 4px; font-size:11px; color:var(--t2); }
@@ -274,6 +280,11 @@
   <div id="bigCount" class="idle num">–</div>
   <div id="cells" class="num"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div><div>7</div><div>8</div></div>
   <button id="fxHereHud" title="지금 들리는 소리가 1이면 눌러요 — 여기부터 다시 맞춰요">👆 여기가 1<span style="font-weight:400; opacity:.7">· 박자 밀렸을 때</span></button>
+  <div id="fxNudge" class="num">
+    <button id="fxBackHud" title="화면 숫자가 실제 박자보다 늦게 나오면(예: 8 자리에 7) 눌러요">◀ 한 박</button>
+    <span>숫자가 어긋나면 한 칸씩</span>
+    <button id="fxFwdHud" title="화면 숫자가 실제 박자보다 빨리 나오면 눌러요">한 박 ▶</button>
+  </div>
 </div>
 
 <div id="tlHead" hidden><div>프레이즈<span id="loopLabel"></span></div><div id="tlTime" class="num"></div></div>
