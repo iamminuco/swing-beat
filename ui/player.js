@@ -109,7 +109,7 @@ function toast(msg) {
   el.textContent = msg;
   el.style.display = 'block';
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => { el.style.display = 'none'; }, 2600);
+  toast.t = setTimeout(() => { el.style.display = 'none'; }, msg.length > 36 ? 4800 : 2600); // 긴 안내는 읽을 시간을 준다(sol 9/12)
 }
 
 const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -122,14 +122,14 @@ async function ensureModel(progress) {
     filterbank = prepareFilterbank(new Float32Array(buf));
   }
   if (!session) {
-    progress('모델 받는 중 (9.9MB · 처음 한 번)…');
+    progress('박자 찾는 도구 받는 중 (9.9MB · 처음 한 번)…');
     session = await ort.InferenceSession.create('./assets/beat_this_small0.onnx',
       { executionProviders: ['wasm'] });
   }
 }
 
 async function analyseSamples(pcm, progress) {
-  progress('스펙트로그램 계산 중…');
+  progress('노래를 살펴보는 중…');
   await new Promise(r => setTimeout(r));
   const { frames, data } = logMelSpect(pcm, filterbank);
   if (frames < MIN_FRAMES) throw new Error('30초보다 짧은 곡은 아직 분석할 수 없어요');
@@ -165,15 +165,15 @@ function hasUserJudgments(m) {
 }
 function refreshToast(m) {
   return hasUserJudgments(m)
-    ? '박자 엔진이 새로워져 다시 분석했어요 — 직접 맞춘 자리는 남겼지만 카운트를 한 번 확인해줘'
-    : '박자 엔진이 새로워져 다시 분석했어요';
+    ? '박자 찾는 방법이 새로워져 다시 분석했어요 — 직접 맞춘 자리는 남겼지만 숫자를 한 번 확인해 주세요'
+    : '박자 찾는 방법이 새로워져 다시 분석했어요';
 }
 async function refreshIfStale(m, pcm, progress, isCurrent = () => true) {
   if (m.analysis.engine === GRID_ENGINE) return { m, refreshed: false };
   let grid;
   try {
     await ensureModel(progress);
-    progress('박자 엔진이 새로워져 다시 분석 중…');
+    progress('박자 찾는 방법이 새로워져 다시 분석하는 중…');
     grid = analyze(pcm, MODEL_SR, await analyseSamples(pcm, progress));
   } catch (err) {
     // 재분석이 실패해도 옛 격자로는 열 수 있어야 한다(codex 4차 P1: 모델 로드 실패가 저장곡 열기를 막았다)
@@ -829,7 +829,7 @@ function paintInfoStats() {
 }
 function paintTruthInfo() {
   const t = map.truth;
-  if (!t) { $('truthInfo').textContent = '아직 정답 기록이 없어. 귀로 1을 잡을 수 있는 사람(선생님·댄서)이 곡을 들으며 1마다 탭하면, 앱이 그 탭에 맞춰 카운트를 고치고 초록 배지를 줘.'; $('btnTruthApply').hidden = true; $('btnTruthClear').hidden = true; return; }
+  if (!t) { $('truthInfo').textContent = '아직 찍은 1이 없어요. 1을 들을 수 있는 사람(선생님·댄서)이 곡을 들으며 1마다 화면을 탭하면, 앱이 그 자리에 맞춰 숫자를 고치고 초록 표시를 줘요.'; $('btnTruthApply').hidden = true; $('btnTruthClear').hidden = true; return; }
   const cat = countAtTaps(map), v = truthVerdict(cat);
   $('truthInfo').textContent = `탭 ${t.ones.length}개(${t.recordedAt.slice(0, 10)}) · ${v.text}` + (cat.unmatched ? ` · 박에 안 맞은 탭 ${cat.unmatched}개` : '');
   $('btnTruthApply').hidden = false; $('btnTruthClear').hidden = false;
@@ -850,7 +850,7 @@ function startTruthRecording() {
   ensureCtx();
   // 탭은 '들리는 시각'(heardTime = currentTime − 화면지연×배속)으로 기록한다. 지연 보정을 한 번도 안 했으면
   // 폰 출력 지연(50~250ms)이 탭을 이웃 박에 붙일 수 있다(codex 9차) — 막지는 않되 먼저 알린다.
-  if (!paintLag.touched && !(lag.screen > 0)) toast('기기 지연 보정을 아직 안 했어 — 설정 → 「두드려 재기」를 먼저 하면 정답이 더 정확해져');
+  if (!paintLag.touched && !(lag.screen > 0)) toast('기기 지연 보정을 아직 안 했어요 — 설정 → 「두드려 재기」를 먼저 하면 더 정확해져요');
   closeSheets();
   enterLearning();
   truthClickWas = clickOn; if (clickOn) setClick(false);
@@ -866,10 +866,10 @@ function finishTruthRecording() {
   au.pause();
   leaveLearning();
   if (truthClickWas) setClick(true);
-  if (!taps || taps.length < 2) { toast('탭이 2개 미만이라 저장하지 않았어요'); return; }
+  if (!taps || taps.length < 2) { toast('찍은 1이 2개 미만이라 저장하지 않았어요'); return; }
   const next = applyTruth(withTruth(map, taps));
   const v = truthVerdict(countAtTaps(next));
-  applyMap(next, v.ok ? v.text : `정답 ${taps.length}개 저장 — ${v.text}`);
+  applyMap(next, v.ok ? v.text : `1을 ${taps.length}번 찍어 저장했어요 — ${v.text}`);
 }
 au.addEventListener('timeupdate', () => { if (truthTaps) $('truthTime').textContent = au.currentTime.toFixed(1); });
 $('btnTruthRec').onclick = startTruthRecording;
@@ -882,7 +882,7 @@ $('truthPad').addEventListener('pointerdown', () => {
   $('truthCount').textContent = String(truthTaps.length);
 }, { passive: true });
 $('btnTruthApply').onclick = () => { if (!map.truth) return; const next = applyTruth(map); applyMap(next, truthVerdict(countAtTaps(next)).text); paintTruthInfo(); };
-$('btnTruthClear').onclick = () => { applyMap(withoutTruth(map), '정답 기록을 지웠어요'); paintTruthInfo(); };
+$('btnTruthClear').onclick = () => { applyMap(withoutTruth(map), '찍은 1을 지웠어요'); paintTruthInfo(); };
 $('titleBox').onclick = openInfoSheet;
 $('fxClose').onclick = closeSheets;
 $('fxBack').onclick = () => applyMap(withOneShift(map, -1), '1을 한 박자 앞으로');
@@ -1165,6 +1165,7 @@ function recordGame(levelId, st) {
 }
 function launchGame(levelId) {
   if (!needSong()) return;
+  if (practiceGuard() === null) return;
   enterLearning();
   startGame({
     levelId, counts: lay.counts, au,
@@ -1185,15 +1186,26 @@ for (const el of document.querySelectorAll('#learnView [data-level]')) {
 // 1 찾기 / 혼자 이어가기(토대) — "어디가 1인지 못 잡겠다"는 초보용. 점수 없이 몸에 붙인다.
 // ⚠️ 한 구간 반복은 "그 멜로디 외우기"가 되어 실력이 안 는다(사용자 지적) → 곡 전체를 지나간다.
 // 1 찾기는 힌트를 껐다 켤 수 있다: 켜면 앱이 1을 짚어 주고, 끄면 음악만 듣고 스스로 찾는다.
+// 앱이 1을 못 찾은 곡(🔴 근거 부족)으로 채점 연습을 하면 앱의 오답을 자기 실력으로 받아들인다(astra·sol 9/12).
+// 사람이 확인한 곡이 아니면 화면 제목에 '앱 기준'을 붙여 판정의 출처를 밝힌다.
+function practiceGuard() {
+  const t = songTrust(map);
+  if (t.level === 'none') {
+    toast('이 곡은 앱이 1을 확실히 못 찾았어요 — 다른 곡으로 연습하거나, 곡 정보에서 박자를 아는 사람과 맞춰 주세요');
+    return null;
+  }
+  return t.level === 'verified' ? '' : ' · 앱 기준';
+}
 function launchBounce(mode) {
   if (!needSong()) return;
+  const basis = practiceGuard(); if (basis === null) return;
   enterLearning();
   startBounce({
     mode, counts: lay.counts, au, ensureCtx,
     clickAt: engine.clickAt, kick: engine.kick, cancelClicks: engine.cancelPending,
     getHeardTime: heardTime, getRate,
     setRate: r => setSpeed(Math.round(r * 100), false),
-    title: mode === 'find' ? '박자 잡기' : '혼자 이어가기',
+    title: (mode === 'find' ? '박자 잡기' : '혼자 이어가기') + basis,
     onExit: () => { leaveLearning(); switchTab('learn'); },
   });
 }
@@ -1204,6 +1216,7 @@ $('btnGap').onclick = () => launchBounce('gap');
 // teach=true면 문제 전에 가르침 화면(맞는 소리·어긋난 소리 시범)을 먼저 보여준다.
 function launchListening(n, onDone, teach = false) {
   if (!needSong()) return false;
+  if (practiceGuard() === null) return false;
   let questions;
   try { questions = makeListeningQuiz(lay.counts, n); } catch (err) { toast(err.message); return false; }
   enterLearning();
@@ -1259,18 +1272,21 @@ function showResult(listening, st) {
       <div class="rsStat"><div class="k">박자 맞추기 · 평균</div><div class="v num">${st && st.meanMs !== null ? describeTiming(st.meanMs) : '–'}</div><div class="s">${tapLine}</div></div>
       <div class="rsStat"><div class="k">박자 맞추기 · 흔들림</div><div class="v num">${st && st.sdMs !== null ? '±' + st.sdMs + 'ms' : '–'}</div><div class="s">탭 간격이 고른 정도</div></div>
     </div>
-    <div class="rsDefault"><div class="k">재생 화면 기본값</div><div class="v">${d.text}</div></div>
-    <div class="rsBtns"><button id="rsRetry">다시</button><button class="primary" id="rsDone">학습으로</button></div>`;
+    <div class="rsDefault"><div class="k">추천 설정 (적용을 눌러야 바뀌어요)</div><div class="v">${d.text}</div></div>
+    <div class="rsBtns"><button id="rsRetry">다시</button><button id="rsSkip">그대로 학습으로</button><button class="primary" id="rsDone">추천 설정 적용</button></div>`;
   root.hidden = false;
   const close = () => { root.hidden = true; root.innerHTML = ''; };
-  const finish = () => {
-    close();
-    leaveLearning();
+  // ✕·「그대로」는 아무 설정도 바꾸지 않는다. 설정 변경은 「추천 설정 적용」을 눌렀을 때만(astra·sol 9/12: 닫기만 해도 몰래 바뀌었다).
+  const leave = () => { close(); leaveLearning(); switchTab('learn'); };
+  const applyAndLeave = () => {
+    close(); leaveLearning();
     setCountMode(d.countMode); setClick(d.click); setAccent(d.accent);
     switchTab('learn');
+    toast('추천 설정을 적용했어요 — 설정에서 언제든 바꿀 수 있어요');
   };
-  root.querySelector('#rsDone').onclick = finish;
-  root.querySelector('#rsClose').onclick = finish;
+  root.querySelector('#rsDone').onclick = applyAndLeave;
+  root.querySelector('#rsSkip').onclick = leave;
+  root.querySelector('#rsClose').onclick = leave;
   root.querySelector('#rsRetry').onclick = () => { close(); leaveLearning(); runBeatTest(); };
 }
 

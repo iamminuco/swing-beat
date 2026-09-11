@@ -292,55 +292,55 @@ export function songTrust(map) {
     const v = truthVerdict(cat);
     const pct = Math.round(cat.pct1 * 100), cov = Math.round(cat.coverage * 100);
     if (v.ok && cat.n >= TRUTH_MIN_TAPS && cat.coverage >= TRUTH_MIN_COVERAGE) {
-      return { level: 'verified', label: `✅ 사람 확인 ${pct}%`,
-        detail: `귀 있는 사람이 찍은 1 ${cat.n}개(곡의 ${cov}% 구간) 중 ${pct}%가 앱의 1과 맞아. 이 곡은 믿어도 돼.` };
+      return { level: 'verified', label: `✅ 사람이 확인 ${pct}%`,
+        detail: `1을 아는 사람이 찍은 ${cat.n}번(곡의 ${cov}%) 중 ${pct}%가 앱의 1과 맞아요. 이 곡은 믿어도 돼요.` };
     }
     if (v.ok && cat.n >= TRUTH_MIN_TAPS) { // 앞부분만 기록 — 확인된 범위 밖은 보증 못 한다(codex 9차)
-      return { level: 'partial', label: `🟡 부분 확인 ${cov}%`,
-        detail: `탭 ${cat.n}개는 ${pct}% 맞지만 곡의 ${cov}% 구간만 기록됐어. 나머지는 미확인 — 끝까지 탭해줘.` };
+      return { level: 'partial', label: `🟡 앞부분만 확인 ${cov}%`,
+        detail: `찍은 ${cat.n}번은 ${pct}% 맞지만 곡의 ${cov}%만 확인됐어요. 나머지는 아직 몰라요 — 끝까지 찍어 주세요.` };
     }
-    return { level: 'caution', label: cat.n < TRUTH_MIN_TAPS && v.ok ? '🟡 탭 부족' : '🔴 정답과 어긋남',
-      detail: cat.n < TRUTH_MIN_TAPS && v.ok ? `사람 탭 ${cat.n}개는 맞지만 ${TRUTH_MIN_TAPS}개 미만이라 확인으로 치지 않아 — 정답 기록을 더 해줘.`
-        : v.text + ' — 곡 정보의 「정답 다시 적용」을 누르면 탭에 맞춰 고쳐.' };
+    return { level: 'caution', label: cat.n < TRUTH_MIN_TAPS && v.ok ? '🟡 더 찍어야 해요' : '🔴 찍은 1과 달라요',
+      detail: cat.n < TRUTH_MIN_TAPS && v.ok ? `찍은 ${cat.n}번은 맞지만 ${TRUTH_MIN_TAPS}번 미만이라 확인으로 치지 않아요 — 더 찍어 주세요.`
+        : v.text + ' — 곡 정보의 「찍은 1로 다시 맞추기」를 누르면 그 자리에 맞춰 고쳐요.' };
   }
   // 옛 엔진 분석(아직 재분석 전이거나 재분석이 실패한 곡)은 노랑 '자동'으로 보이면 안 된다(sol 2026-09-11):
   // 새 경고(예: 템포 확인)를 못 받은 상태다. 곡을 열면 다시 분석되고 이 표시는 사라진다.
   if ((map.analysis?.engine ?? null) !== GRID_ENGINE) {
-    return { level: 'caution', label: '🔴 옛 분석',
-      detail: '박자 엔진이 새로워졌는데 이 곡은 아직 옛 분석이야. 곡을 다시 열면 재분석해서 배지를 새로 매겨(직접 맞춘 자리는 그대로). 방금 열었는데도 이 표시면 재분석이 실패한 거야.' };
+    return { level: 'caution', label: '🔴 다시 확인 필요',
+      detail: '박자 찾는 방법이 새로워졌는데 이 곡은 아직 옛 결과예요. 곡을 다시 열면 새로 분석해요(직접 맞춘 자리는 그대로). 방금 열었는데도 이 표시면 새 분석이 실패한 거예요.' };
   }
   if (w.has('manual_tempo_clamped')) {
-    return { level: 'caution', label: '🔴 확인 필요',
-      detail: '엔진이 새로워지면서 네가 고른 반/두 배를 그대로 옮길 수 없었어(4배·¼배는 앱에 없어). 곡 정보에서 반/두 배를 다시 골라줘 — 고르면 이 표시는 사라져.' };
+    return { level: 'caution', label: '🔴 빠르기 다시 골라요',
+      detail: '박자 찾는 방법이 새로워지면서 고른 반/두 배를 그대로 옮길 수 없었어요. 곡 정보에서 빠르기를 다시 골라 주세요 — 고르면 이 표시는 사라져요.' };
   }
   if (anchorsOffGrid(map, beats)) {
-    return { level: 'caution', label: '🔴 확인 필요',
-      detail: '네가 직접 맞춘 자리가 지금 격자의 박 위에 있지 않아(엔진이 새로워졌거나 반/두 배를 바꿨을 때 생겨). 카운트 보며 「한 박」으로 다시 맞춰줘.' };
+    return { level: 'caution', label: '🔴 맞춘 자리 확인',
+      detail: '직접 맞춘 자리가 지금 박 위에 있지 않아요(새로 분석했거나 반/두 배를 바꿨을 때 생겨요). 숫자를 보며 「한 박」으로 다시 맞춰 주세요.' };
   }
   // 템포 확인은 저장 경고가 아니라 지금 격자의 실제 BPM으로 본다(astra: 240에서 「두 배」를 누르면 480인데 '자동'이 됐다).
   // 290 초과면 어떤 선택이든 확인, 220 초과는 사용자가 반/두 배를 아직 안 골랐을 때만.
   const bpm = tempoBpm(map);
   if (bpm !== null && (bpm > 290 || (bpm > 220 && map.corrections?.manualTempo === null))) {
-    return { level: 'caution', label: '🔴 템포 확인',
+    return { level: 'caution', label: '🔴 빠르기 확인',
       detail: bpm > 290
-        ? `${bpm} BPM은 춤출 수 있는 빠르기가 아니야 — 곡 정보에서 「반」을 눌러봐.`
-        : '220 BPM이 넘는 빠른 격자야. 실제로는 절반 빠르기(느린 곡을 두 배로 들은 것)일 수 있어 — 곡 정보에서 「반」을 눌러 비교해봐.' };
+        ? `숫자가 1분에 ${bpm}번 — 춤출 수 있는 빠르기가 아니에요. 곡 정보에서 「반으로」를 눌러 보세요.`
+        : '숫자가 두 배 빠를 수 있어요(느린 곡을 두 배로 들은 것). 곡 정보에서 「반으로」를 눌러 비교해 보세요.' };
   }
   if (map.corrections?.oneAnchorTime != null) {
-    return { level: 'manual', label: '✋ 직접 맞춤',
-      detail: '네가 「한 박」 버튼으로 직접 맞춘 곡이야.' };
+    return { level: 'manual', label: '✋ 내가 맞춤',
+      detail: '「한 박」이나 「여기가 1」로 직접 맞춘 곡이에요. 앱이 확인한 건 아니에요.' };
   }
   if (offset === null || beats.length < 2 || w.has('no_downbeat') || w.has('insufficient_beats')) {
-    return { level: 'none', label: '🔴 근거 부족',
-      detail: '박·마디를 제대로 못 찾아서 카운트를 믿기 어려워. 「한 박」으로 직접 맞춰줘.' };
+    return { level: 'none', label: '🔴 1을 못 찾았어요',
+      detail: '앱이 이 곡의 박자를 제대로 못 찾았어요. 다른 곡으로 연습하거나, 곡 정보에서 박자를 아는 사람과 맞춰 주세요.' };
   }
   if (w.has('bar_alignment_needs_review') || w.has('count_drift_needs_review')) {
-    return { level: 'caution', label: '🔴 확인 필요',
-      detail: '마디 길이가 들쭉날쭉하거나 중간부터 어긋날 수 있어. 카운트 보며 「한 박」으로 맞춰줘.' };
+    return { level: 'caution', label: '🔴 틀릴 수 있어요',
+      detail: '박자가 들쭉날쭉하거나 중간부터 어긋날 수 있어요. 숫자를 보며 「한 박」으로 맞추거나, 박자를 아는 사람과 맞춰 주세요.' };
   }
   const corrected = w.has('downbeat_phase_corrected');
-  return { level: 'auto', label: corrected ? '🟡 자동 교정함' : '🟡 자동 (안정적)',
-    detail: '앱이 자동으로 맞췄어. 대체로 안정적이지만 사람 확인은 아직이야 — 어긋나 보이면 「한 박」으로.' };
+  return { level: 'auto', label: corrected ? '🟡 앱이 찾아 고침 · 확인 전' : '🟡 앱이 찾음 · 확인 전',
+    detail: '앱이 자동으로 맞췄어요. 대체로 잘 맞지만 사람이 확인한 건 아니에요 — 어긋나 보이면 「한 박」으로 맞춰 주세요.' };
 }
 
 export function posOf(map, time) {

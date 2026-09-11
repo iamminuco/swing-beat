@@ -72,7 +72,7 @@ export function startBounce({
       return;
     }
     $('bnHint').innerHTML = hint
-      ? '<b style="color:#ffd644">낮게 「둠」 하는 큰 공 = 1</b> (여덟 카운트의 시작). 스윙은 1이 낮은 베이스예요.'
+      ? '앱이 1마다 낮은 <b style="color:#ffd644">「둠」</b> 소리를 더했어요. <b style="color:#ffd644">노란 큰 공과 둠이 같이 오는 자리가 1</b>이에요. 그때 눌러 보세요.'
       : '이제 <b>혼자</b> — 음악만 듣고 1이라고 느낄 때 눌러요. 맞았는지 알려줄게요. 준비되면 <b>혼자 확인하기</b>로 채점해요.';
     if ($('bnToggle')) {
       $('bnToggle').textContent = hint ? '힌트 끄고 혼자 찾기 →' : '← 힌트 다시 켜기';
@@ -151,10 +151,11 @@ export function startBounce({
       checkTaps.push({ i, count: c.count, onBeat, born: performance.now() });
       return;
     }
-    // find+힌트끔: "1을 맞혔나"가 핵심. gap/힌트켬: 그냥 박자 맞췄나.
-    const good = (!gap && !hint) ? (onBeat && c.count === 1) : onBeat;
+    // 박자 잡기(find)는 힌트를 켜든 끄든 "1을 맞혔나"로 판정한다 — 안내는 "1이라고 느낄 때 누르세요"인데
+    // 힌트 켬에서 아무 박에나 성공 물결을 주면 기준이 흔들린다(astra·sol 9/12). 혼자 이어가기(gap)만 '박자 맞췄나'.
+    const good = gap ? onBeat : (onBeat && c.count === 1);
     let msg = '';
-    if (!gap && !hint) {
+    if (!gap) {
       if (onBeat && c.count === 1) msg = '1 맞아요! 👍';
       else if (onBeat) msg = `${c.count}번이에요 · 1은 아니에요`;
       else msg = '';

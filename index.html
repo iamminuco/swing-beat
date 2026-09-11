@@ -389,18 +389,18 @@
     <button id="fxHere" style="border-color:var(--yellow); color:var(--yellow); font-weight:700">지금 이 순간이 1이에요</button>
   </div>
   <div id="driftInfo" class="warn" style="margin-top:8px"></div>
-  <div class="secHead"><b>사람 확인</b><span>귀 있는 사람이 1을 탭하면 앱이 맞춰요</span></div>
+  <div class="secHead"><b>박자를 아는 사람과 맞추기</b><span>1을 들을 수 있는 사람이 1마다 탭하면 앱이 맞춰요</span></div>
   <div id="truthInfo" style="font-size:13px; color:var(--t2); line-height:1.7; margin-top:6px"></div>
-  <div class="row"><button id="btnTruthRec">🎯 정답 기록 시작</button><button id="btnTruthApply">정답 다시 적용</button><button id="btnTruthClear">지우기</button></div>
+  <div class="row"><button id="btnTruthRec">🎯 1 찍기 시작</button><button id="btnTruthApply">찍은 1로 다시 맞추기</button><button id="btnTruthClear">지우기</button></div>
   <details style="margin-top:12px">
     <summary style="color:var(--t2); font-size:13px">세부 설정 (몰라도 돼요)</summary>
     <div class="label">1의 위치 미세 조정 (곡 전체의 1)</div>
     <div class="row"><button id="fxBack">1 한 박자 앞</button><button id="fxFwd">1 한 박자 뒤</button><button id="fxSwap">1↔5</button></div>
     <div class="row"><button id="fxGlobalHere">지금 이 순간을 곡 전체의 1로</button><button id="fxUndoSection">마지막 구간 보정 취소</button><button id="fxUndo" disabled>↶ 되돌리기</button></div>
-    <div class="label">프레이즈 길이 — 기본 4 (대부분의 스윙 곡)</div>
+    <div class="label">큰 묶음 길이 (고급) — 기본 4</div>
     <div class="row"><button data-plen="4">4</button><button data-plen="6">6</button><button data-plen="8">8</button></div>
-    <div class="label">빠르기 해석 — 카운트가 두 배 빠르거나 느리게 느껴질 때</div>
-    <div class="row"><button id="fxHalf">BPM 반으로</button><button id="fxNormal">기본</button><button id="fxDouble">BPM 두 배로</button></div>
+    <div class="label">빠르기 — 숫자가 두 배 빠르거나 느리게 느껴질 때</div>
+    <div class="row"><button id="fxHalf">반으로</button><button id="fxNormal">기본</button><button id="fxDouble">두 배로</button></div>
   </details>
   <div class="row" style="margin-top:14px"><button class="primary" id="fxClose" style="height:56px">닫기</button></div>
 </div>
@@ -438,12 +438,12 @@
 </div>
 
 <div id="truthView" class="overlay" hidden>
-  <div style="padding:16px; display:flex; justify-content:space-between; align-items:center"><b>정답 기록</b><button id="truthDone" style="height:44px; padding:0 18px">끝내고 저장</button></div>
+  <div style="padding:16px; display:flex; justify-content:space-between; align-items:center"><b>1 찍기</b><button id="truthDone" style="height:44px; padding:0 18px">끝내고 저장</button></div>
   <div id="truthPad" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; user-select:none; -webkit-user-select:none; touch-action:manipulation">
     <div style="font-size:20px; text-align:center; line-height:1.5">음악에서 <b style="color:var(--yellow)">1</b>이 올 때마다<br>화면 아무 데나 탭</div>
     <div id="truthCount" class="num" style="font-size:72px; line-height:1">0</div>
     <div id="truthTime" class="num" style="color:var(--t2)">0.0</div>
-    <div style="color:var(--t3); font-size:13px; text-align:center">카운트와 카운트음은 숨겨요 — 귀로만.<br>틀린 탭 한두 개는 괜찮아요(연속 2개부터 반영).</div>
+    <div style="color:var(--t3); font-size:13px; text-align:center">숫자와 카운트음은 숨겨요 — 귀로만.<br>잘못 찍은 한두 번은 괜찮아요(연달아 2번부터 반영해요).</div>
   </div>
 </div>
 <div id="gameView" class="overlay" hidden></div>
