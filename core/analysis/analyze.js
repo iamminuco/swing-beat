@@ -196,7 +196,10 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   }
   const misalignedDownbeatRatio = downbeats.length && offset !== null
     ? misaligned / downbeats.length : null;
-  if (misalignedDownbeatRatio > 0.05) warnings.push('count_drift_needs_review');
+  // 문턱 0.05→0.25 (2026-09-12): GTZAN 정답 대조에서 0.05는 위상이 맞는 곡 59개 중 33개(56%)에 경고를 냈고 틀린 9곡 중 6개를
+  // 잡았다 — 거의 모든 곡에 「틀릴 수 있어요」를 띄우는 양치기. 맞는 곡의 어긋난 다운비트는 대부분 모델의 구간별 반마디 착각
+  // (연속 어긋남이 위상 2였다가 복귀)이라 카운트 오류가 아니다. 0.25면 맞는 곡 16/59(27%)·틀린 곡 5/9. 수업곡 12곡은 9→2곡만.
+  if (misalignedDownbeatRatio > 0.25) warnings.push('count_drift_needs_review');
   const local = intervals(beats);
   return {
     engine: GRID_ENGINE,
