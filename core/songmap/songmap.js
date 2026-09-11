@@ -127,8 +127,8 @@ export function songTrust(map) {
   // 옛 엔진 분석(아직 재분석 전이거나 재분석이 실패한 곡)은 노랑 '자동'으로 보이면 안 된다(sol 2026-09-11):
   // 새 경고(예: 템포 확인)를 못 받은 상태다. 곡을 열면 다시 분석되고 이 표시는 사라진다.
   if ((map.analysis?.engine ?? null) !== GRID_ENGINE) {
-    return { level: 'caution', label: '🔴 열면 다시 분석',
-      detail: '박자 엔진이 새로워졌어. 이 곡을 열면 다시 분석해서 배지를 새로 매겨(직접 맞춘 자리는 그대로).' };
+    return { level: 'caution', label: '🔴 옛 분석',
+      detail: '박자 엔진이 새로워졌는데 이 곡은 아직 옛 분석이야. 곡을 다시 열면 재분석해서 배지를 새로 매겨(직접 맞춘 자리는 그대로). 방금 열었는데도 이 표시면 재분석이 실패한 거야.' };
   }
   if (w.has('manual_tempo_clamped')) {
     return { level: 'caution', label: '🔴 확인 필요',
@@ -151,7 +151,7 @@ export function songTrust(map) {
     return { level: 'manual', label: '✋ 직접 맞춤',
       detail: '네가 「한 박」 버튼으로 직접 맞춘 곡이야.' };
   }
-  if (offset === null || w.has('no_downbeat') || w.has('insufficient_beats')) {
+  if (offset === null || beats.length < 2 || w.has('no_downbeat') || w.has('insufficient_beats')) {
     return { level: 'none', label: '🔴 근거 부족',
       detail: '박·마디를 제대로 못 찾아서 카운트를 믿기 어려워. 「한 박」으로 직접 맞춰줘.' };
   }
