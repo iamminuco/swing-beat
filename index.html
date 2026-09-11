@@ -73,6 +73,8 @@
   #trustBadge.manual { color:var(--t1); border-color:var(--line); }
   #trustBadge.verified { color:#4cd964; border-color:#4cd964; }
   #trustBadge.partial { color:var(--yellow); border-color:var(--yellow); }
+  #fxUndoHud { margin:4px auto 0; padding:6px 14px; font-size:13px; }
+  #fxUndoHud:disabled { opacity:.35; }
 
   /* ── 타임라인 ── */
   #tlHead { display:flex; justify-content:space-between; align-items:baseline; padding:8px 16px 4px; font-size:11px; color:var(--t2); }
@@ -294,6 +296,7 @@
     <span>숫자가 어긋나면 한 칸씩</span>
     <button id="fxFwdHud" title="화면 숫자가 실제 박자보다 빨리 나오면 눌러요">한 박 ▶</button>
   </div>
+  <button id="fxUndoHud" disabled title="방금 누른 보정(여기가 1·한 박·1↔5·구간)을 한 단계 되돌려요">↶ 되돌리기</button>
 </div>
 
 <div id="tlHead" hidden><div>프레이즈<span id="loopLabel"></span></div><div id="tlTime" class="num"></div></div>
@@ -393,7 +396,7 @@
     <summary style="color:var(--t2); font-size:13px">세부 설정 (몰라도 돼요)</summary>
     <div class="label">1의 위치 미세 조정 (곡 전체의 1)</div>
     <div class="row"><button id="fxBack">1 한 박자 앞</button><button id="fxFwd">1 한 박자 뒤</button><button id="fxSwap">1↔5</button></div>
-    <div class="row"><button id="fxGlobalHere">지금 이 순간을 곡 전체의 1로</button><button id="fxUndoSection">마지막 구간 보정 취소</button></div>
+    <div class="row"><button id="fxGlobalHere">지금 이 순간을 곡 전체의 1로</button><button id="fxUndoSection">마지막 구간 보정 취소</button><button id="fxUndo" disabled>↶ 되돌리기</button></div>
     <div class="label">프레이즈 길이 — 기본 4 (대부분의 스윙 곡)</div>
     <div class="row"><button data-plen="4">4</button><button data-plen="6">6</button><button data-plen="8">8</button></div>
     <div class="label">빠르기 해석 — 카운트가 두 배 빠르거나 느리게 느껴질 때</div>

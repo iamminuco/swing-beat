@@ -12,8 +12,10 @@
 // 용어는 "박자/카운트"만 쓴다.
 import { countAt } from '../core/analysis/analyze.js';
 
-const FIND_RATE = 0.85; // 기본만 살짝 느리게 — 나머지는 화면 안 속도 조절로 사용자가 정한다
-const GAP_RATE = 0.85;
+// 기본 100% (2026-09-12 사용자: 85%에서 '느려져서 노이즈 낀 느낌, 정상인지 틀린지 모르겠다'). 학습 중엔 음정유지를
+// 끄므로 느리게 하면 소리가 낮고 거칠어지는데, 그게 기본이면 앱이 고장난 것처럼 들린다. 느리게는 사용자가 고른다.
+const FIND_RATE = 1.0;
+const GAP_RATE = 1.0;
 const GAP_ON = 8, GAP_OFF = 8;
 const CHECK_N = 4;       // 확인 라운드에서 찾을 1의 개수(짧고 반복 가능하게)
 const WIN_MS = 150;      // 박자 판정창(게임의 더 좁은 창은 안 가져온다 — codex 권고)
@@ -43,9 +45,10 @@ export function startBounce({
       <div class="ovRight"></div>
     </div>
     <div class="bnHint" id="bnHint"></div>
+    <div id="bnSpeedLblNote" style="text-align:center; font-size:12px; color:var(--t2); min-height:16px"></div>
     <div class="bnSpeed" id="bnSpeed">
       <button id="bnSlow" aria-label="느리게">−</button>
-      <div><span id="bnSpeedV" class="num">85%</span><div class="bnSpeedLbl">속도</div></div>
+      <div><span id="bnSpeedV" class="num">100%</span><div class="bnSpeedLbl">속도</div></div>
       <button id="bnFast" aria-label="빠르게">+</button>
     </div>
     ${gap ? '' : `<div id="bnBtns" style="display:flex; gap:8px; max-width:340px; margin:6px auto 0; justify-content:center">
@@ -90,7 +93,11 @@ export function startBounce({
 
   // 속도 조절 — 곡 안에서 바로 반영(음정 유지). 나갈 때 원래 속도로 복원.
   let curRate = gap ? GAP_RATE : FIND_RATE;
-  function paintSpeed() { $('bnSpeedV').textContent = Math.round(curRate * 100) + '%'; }
+  function paintSpeed() {
+    $('bnSpeedV').textContent = Math.round(curRate * 100) + '%';
+    // 느리게 하면 음정유지를 끈 상태라 소리가 낮고 거칠어진다 — 고장이 아니라는 걸 화면에 써 준다
+    $('bnSpeedLblNote').textContent = curRate < 1 ? '느리면 소리가 낮고 거칠어져요 — 정상이에요' : '';
+  }
   function bumpSpeed(d) {
     curRate = Math.max(0.5, Math.min(1.0, Math.round((curRate + d) * 20) / 20));
     setRate(curRate);

@@ -230,6 +230,7 @@ function mountSong(m, pcm, blob) {
   // 저장소가 정본이다: 파일 저장(saveAudio)을 기다리는 사이 사용자가 같은 곡에 마커를 찍었으면 그게 최신이고,
   // 여기서 옛 m을 올리면 다음 편집 저장이 그 마커를 지운다(codex 3차 P1, 기존 경합).
   map = loadSongMap(m.song) ?? m;
+  undoStack.length = 0; // 다른 곡의 보정을 이 곡에 되돌리지 않는다
   samples = pcm;
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(blob);
@@ -299,8 +300,30 @@ async function openFiles(files) {
 }
 
 // ── SongMap 갱신 → 화면 재구성 ────────────────────────────────────
+// 되돌리기: 보정 버튼(여기가 1·한 박·1↔5·구간·정답 적용 등)을 잘못 눌렀을 때 한 단계씩 되돌린다(세션 안, 곡별).
+// 2026-09-12 사용자: "듣다가 잘못 누르면 뒤로 돌아갈 방법이 없다".
+const undoStack = [];
+function pushUndo(prev) {
+  if (undoStack.length && undoStack[undoStack.length - 1] === prev) return;
+  undoStack.push(prev);
+  if (undoStack.length > 20) undoStack.shift();
+  paintUndo();
+}
+function paintUndo() {
+  const can = undoStack.length > 0 && undoStack[undoStack.length - 1]?.song && map && songKey(undoStack[undoStack.length - 1].song) === songKey(map.song);
+  for (const id of ['fxUndoHud', 'fxUndo']) { const b = $(id); if (b) b.disabled = !can; }
+}
+function undoLast() {
+  const prev = undoStack.pop();
+  if (!prev || !map || songKey(prev.song) !== songKey(map.song)) { paintUndo(); toast('되돌릴 게 없어요'); return; }
+  map = saveSongMap(prev);
+  rebuild(); resync(); if (loopOn) updateLoop();
+  paintUndo();
+  toast('방금 보정을 되돌렸어요');
+}
 function applyMap(next, msg) {
   if (next === map) return;
+  pushUndo(map);
   map = saveSongMap(next); // 저장이 돌려주는 검증본이 정본
   rebuild();
   resync();
@@ -321,6 +344,7 @@ function rebuild() {
   setSpeed(Math.round(map.rate * 100), false);
   if (!$('infoSheet').hidden) paintInfoStats();
   $('fxUndoSection').disabled = map.corrections.sectionOnes.length === 0;
+  paintUndo();
 }
 
 // 신뢰 배지 — 앱이 이 곡을 얼마나 확신하는지 정직히(초록=검증은 정답 없이 못 줌).
@@ -870,12 +894,12 @@ function fixOneHere() {
   const t = au.currentTime;
   const counts = lay.counts;
   if (!counts.length || t < counts[Math.min(7, counts.length - 1)].end) {
-    applyMap(withOneAt(map, t), '좋아요 — 여기가 1이에요');
+    applyMap(withOneAt(map, t), '여기가 1 — 잘못 눌렀으면 「되돌리기」');
     return;
   }
   const next = withSectionOne(map, t);
-  if (next === map) { applyMap(withOneAt(map, t), '좋아요 — 여기가 1이에요'); return; }
-  applyMap(next, '좋아요 — 여기부터 1로 다시 세요');
+  if (next === map) { applyMap(withOneAt(map, t), '여기가 1 — 잘못 눌렀으면 「되돌리기」'); return; }
+  applyMap(next, '여기부터 1로 다시 세요 — 잘못 눌렀으면 「되돌리기」');
 }
 $('fxHere').onclick = fixOneHere;
 $('fxHereHud').onclick = fixOneHere; // 재생 화면 카운트 아래 상시 버튼(밀렸을 때 바로)
@@ -884,6 +908,8 @@ $('fxHereHud').onclick = fixOneHere; // 재생 화면 카운트 아래 상시 �
 // 동시에 교정한다. 곡별 1회 저장이라 다시 열어도 유지된다.
 $('fxBackHud').onclick = () => applyMap(withOneShift(map, -1), '1을 한 박자 앞으로');
 $('fxFwdHud').onclick = () => applyMap(withOneShift(map, 1), '1을 한 박자 뒤로');
+$('fxUndoHud').onclick = undoLast;
+$('fxUndo').onclick = undoLast;
 $('trustBadge').onclick = () => { if (trustDetail) toast(trustDetail); };
 $('fxGlobalHere').onclick = () => applyMap(withOneAt(map, au.currentTime), '곡 전체의 1을 여기로 옮겼어요');
 $('fxUndoSection').onclick = () => {
