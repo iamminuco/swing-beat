@@ -6,7 +6,9 @@
 // v1 was finalized pre-release on 2026-09-07; interim in-session shapes (e.g.
 // corrections.offsetShift) are rejected on purpose — no user data ever used
 // them, so there is nothing to migrate. The first shipped format is this one.
-export const SCHEMA_VERSION = 1;
+// v2 (2026-09-11): `truth` — 귀 있는 사람(선생님·댄서)이 재생 중 "1"마다 탭한 시각. 앱의 카운트를 채점하고
+// (count-at-tap) 교정하는 유일한 정답원. v1 지도는 truth:null로 올라온다. 저장 키·분석·보정 형식은 그대로.
+export const SCHEMA_VERSION = 2;
 
 // Two marker times closer than this are the same marker, everywhere: the API
 // replaces/removes them together and the schema refuses to store such a pair.
@@ -54,6 +56,7 @@ export function createSongMap(song, grid) {
       warnings: [...grid.diagnostics.warnings],
     },
     corrections: { oneAnchorTime: null, oneFiveReturnTime: null, manualTempo: null, sectionOnes: [] },
+    truth: null,
     markers: [],
     phraseLen: 4,
     accent: 'EVEN',
@@ -173,6 +176,17 @@ export function migrateSongMap(raw) {
       Math.abs(latency.screen) > 0.3 || Math.abs(latency.click) > 0.3) {
     throw new RangeError('latency must be within ±0.3 s');
   }
+  // 사람 확인 탭(v2). 시각은 곡 안·오름차순·유일. 최소 1개. 기록 시각 문자열은 출처 표시용.
+  let truth = raw.truth ?? null;
+  if (truth !== null) {
+    if (typeof truth !== 'object' || !Array.isArray(truth.ones) || !truth.ones.length) {
+      throw new RangeError('truth needs a non-empty ones array');
+    }
+    const ones = [...truth.ones];
+    assertOrdered(ones, 'truth.ones');
+    if (ones.some(t => t >= song.duration)) throw new RangeError('truth.ones must lie inside the audio');
+    truth = { ones, recordedAt: typeof truth.recordedAt === 'string' ? truth.recordedAt : '' };
+  }
   return {
     schemaVersion: SCHEMA_VERSION,
     song: { name: song.name, size: song.size, duration: song.duration },
@@ -190,6 +204,7 @@ export function migrateSongMap(raw) {
       manualTempo: corrections.manualTempo,
       sectionOnes,
     },
+    truth,
     markers, phraseLen, accent, rate,
     loop: loop === null ? null : { start: loop.start, end: loop.end },
     latency: { screen: latency.screen, click: latency.click },

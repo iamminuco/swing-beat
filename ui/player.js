@@ -16,7 +16,7 @@ import { createSongMap, songKey } from '../core/songmap/schema.js';
 import {
   layout, withOneShift, withOneFiveSwap, withOneAt, withSectionOne, withoutSectionOne,
   withPhraseLen, withManualTempo, withMarker, withoutMarker, tempoBpm, songTrust,
-  refreshAnalysis,
+  refreshAnalysis, withTruth, withoutTruth, applyTruth, countAtTaps, truthVerdict,
 } from '../core/songmap/songmap.js';
 import { prevMarker, nextMarker, loopRange, markerNear } from '../core/songmap/navigate.js';
 import { saveSongMap, loadSongMap, listSongMaps } from '../storage/songstore.js';
@@ -626,6 +626,7 @@ au.addEventListener('seeked', () => { resync(); if (loopOn) updateLoop(); }); //
 au.addEventListener('play', () => { $('btnPlay').textContent = '⏸'; resync(); if (loopOn) updateLoop(); });
 au.addEventListener('pause', () => { $('btnPlay').textContent = '▶'; engine.cancelPending(); });
 au.addEventListener('ended', () => {
+  if (truthTaps) { finishTruthRecording(); return; } // 정답 기록 중 곡이 끝나면 그대로 저장
   if (learning) return; // 학습 화면이 곡 끝을 스스로 처리한다
   if (loopOn && loopCur && loopCur.end >= map.song.duration - 0.05) { // 곡 끝을 포함하는 반복
     au.currentTime = loopCur.start;
@@ -802,12 +803,62 @@ function paintInfoStats() {
     cell('프레이즈', t.fullPhrases) + cell('에이트', t.fullEights) +
     cell('카운트', lay.counts.length) + cell('프레이즈 길이', `에이트 ${map.phraseLen}개`, true);
 }
+function paintTruthInfo() {
+  const t = map.truth;
+  if (!t) { $('truthInfo').textContent = '아직 정답 기록이 없어. 귀로 1을 잡을 수 있는 사람(선생님·댄서)이 곡을 들으며 1마다 탭하면, 앱이 그 탭에 맞춰 카운트를 고치고 초록 배지를 줘.'; $('btnTruthApply').hidden = true; $('btnTruthClear').hidden = true; return; }
+  const cat = countAtTaps(map), v = truthVerdict(cat);
+  $('truthInfo').textContent = `탭 ${t.ones.length}개(${t.recordedAt.slice(0, 10)}) · ${v.text}` + (cat.unmatched ? ` · 박에 안 맞은 탭 ${cat.unmatched}개` : '');
+  $('btnTruthApply').hidden = false; $('btnTruthClear').hidden = false;
+}
 function openInfoSheet() {
   if (!map) return;
   $('infoTitle').textContent = baseName(map.song.name);
   paintInfoStats();
+  paintTruthInfo();
   openSheet('infoSheet');
 }
+
+// ── 사람 확인(정답 기록): 귀 있는 사람이 재생 중 1마다 탭 → truth 저장 → 탭에 맞춰 격자 교정 → 초록 배지 ──
+// 기록 중엔 카운트·카운트음을 숨긴다(앱의 1이 탭을 유도하면 정답이 아니다). 탭 시각은 au.currentTime(재생 시계).
+let truthTaps = null, truthClickWas = false;
+function startTruthRecording() {
+  if (!needSong()) return;
+  ensureCtx();
+  // 탭은 '들리는 시각'(heardTime = currentTime − 화면지연×배속)으로 기록한다. 지연 보정을 한 번도 안 했으면
+  // 폰 출력 지연(50~250ms)이 탭을 이웃 박에 붙일 수 있다(codex 9차) — 막지는 않되 먼저 알린다.
+  if (!paintLag.touched && !(lag.screen > 0)) toast('기기 지연 보정을 아직 안 했어 — 설정 → 「두드려 재기」를 먼저 하면 정답이 더 정확해져');
+  closeSheets();
+  enterLearning();
+  truthClickWas = clickOn; if (clickOn) setClick(false);
+  truthTaps = [];
+  $('truthCount').textContent = '0'; $('truthTime').textContent = '0.0';
+  $('truthView').hidden = false;
+  au.currentTime = 0;
+  play();
+}
+function finishTruthRecording() {
+  const taps = truthTaps; truthTaps = null;
+  $('truthView').hidden = true;
+  au.pause();
+  leaveLearning();
+  if (truthClickWas) setClick(true);
+  if (!taps || taps.length < 2) { toast('탭이 2개 미만이라 저장하지 않았어요'); return; }
+  const next = applyTruth(withTruth(map, taps));
+  const v = truthVerdict(countAtTaps(next));
+  applyMap(next, v.ok ? v.text : `정답 ${taps.length}개 저장 — ${v.text}`);
+}
+au.addEventListener('timeupdate', () => { if (truthTaps) $('truthTime').textContent = au.currentTime.toFixed(1); });
+$('btnTruthRec').onclick = startTruthRecording;
+$('truthDone').onclick = finishTruthRecording;
+$('truthPad').addEventListener('pointerdown', () => {
+  if (!truthTaps) return;
+  // 재생 시계가 아니라 '들리는 시각'으로 기록한다(기기 출력 지연 lag.click 보정) — 1찾기 판정과 같은 시계.
+  // 폰 출력 지연 50~200ms를 안 빼면 TAP_TOL(0.12) 안에서 이웃 박에 붙을 수 있다.
+  truthTaps.push(+Math.max(0, heardTime()).toFixed(4));
+  $('truthCount').textContent = String(truthTaps.length);
+}, { passive: true });
+$('btnTruthApply').onclick = () => { if (!map.truth) return; const next = applyTruth(map); applyMap(next, truthVerdict(countAtTaps(next)).text); paintTruthInfo(); };
+$('btnTruthClear').onclick = () => { applyMap(withoutTruth(map), '정답 기록을 지웠어요'); paintTruthInfo(); };
 $('titleBox').onclick = openInfoSheet;
 $('fxClose').onclick = closeSheets;
 $('fxBack').onclick = () => applyMap(withOneShift(map, -1), '1을 한 박자 앞으로');
