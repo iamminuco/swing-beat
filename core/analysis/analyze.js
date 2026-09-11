@@ -8,6 +8,27 @@ function median(values) {
 
 function intervals(beats) { return beats.slice(1).map((t, i) => t - beats[i]); }
 
+// 물리적으로 불가능한 짧은 간격의 박(검출 글리치)을 버린다 — 마지막으로 남긴 박에서
+// 곡 중앙 박간격의 GLITCH_RATIO 미만이면 글리치. 2026-09-11 codex 감사 실측(Shoo Fly Pie):
+// 0.5초 펄스 곡에서 29.76초(직전 간격 0.32)·29.90초(0.14) 검출 중 29.76이 가짜였고, 이 한 박이
+// 뒤 모든 박 인덱스를 +1 밀어 다운비트 mod-4 위상을 1→2로 뒤집었다. phaseVoteOffset은 인덱스
+// 최빈 위상의 첫 다운비트를 고르므로 앞 30초 카운트가 통째로 버려졌다. 글리치를 빼면
+// 인덱스가 일관돼 곡 처음부터 카운트된다. 0.7 = 정박 대비 30% 이른 박까지만 글리치로 봄
+// (스윙의 박은 정속·스윙감은 8분음 층이라 실제 박이 30% 앞당겨지는 일은 드물다).
+const GLITCH_RATIO = 0.7;
+function dropImplausibleBeats(beats) {
+  if (beats.length < 4) return { beats, dropped: 0 };
+  const med = median(intervals(beats));
+  if (med === null || med <= 0) return { beats, dropped: 0 };
+  const kept = [beats[0]];
+  let dropped = 0;
+  for (let i = 1; i < beats.length; i++) {
+    if (beats[i] - kept[kept.length - 1] >= GLITCH_RATIO * med) kept.push(beats[i]);
+    else dropped += 1;
+  }
+  return { beats: kept, dropped };
+}
+
 // Display summary only. Never replace local beat times with this fitted line.
 function fittedBpm(beats) {
   if (beats.length < 2) return null;
@@ -66,11 +87,14 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
     throw new RangeError('Downbeats must be a subset of beats');
   }
   let beats = firstOnset === null ? [] : model.beats.filter(t => t >= firstOnset);
+  const glitch = dropImplausibleBeats(beats);
+  beats = glitch.beats;
   const retained = new Set(beats);
   const downbeats = model.downbeats.filter(t => retained.has(t));
   const rawIntervals = intervals(beats), med = median(rawIntervals);
   const rawBpm = med === null ? null : 60 / med;
   const warnings = [];
+  if (glitch.dropped > 0) warnings.push('glitch_beats_removed');
   const rawIndices = downbeats.map(t => beats.indexOf(t));
   const bars = intervals(rawIndices);
   const twoBeatRatio = bars.length ? bars.filter(n => n === 2).length / bars.length : null;
