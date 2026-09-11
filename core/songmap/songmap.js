@@ -95,6 +95,31 @@ export function layout(map) {
   };
 }
 
+// 곡별 신뢰 배지 — 앱이 '자기가 맞는지' 스스로 표시한다(귀 없는 사용자용).
+// ★정직: 정답(사람 탭/공개 데이터셋)이 없으면 '검증됨(초록)'은 절대 못 준다 —
+//   서로 다른 자동도구도 스윙 백비트를 함께 착각할 수 있어 자기인증이 불가능하기 때문
+//   (2026-09-11 codex+deep-reasoner 교차검증 결론). 그래서 여기선 앱이 아는 위험신호
+//   (저장된 warnings)로 '확신/불확신'만 정직히 낸다. 어떤 곡이든 앱 내부값만으로 계산.
+export function songTrust(map) {
+  const w = new Set(map.analysis?.warnings ?? []);
+  const { barPhase: { offset } } = effectiveGrid(map);
+  if (map.corrections?.oneAnchorTime != null) {
+    return { level: 'manual', label: '✋ 직접 맞춤',
+      detail: '네가 「한 박」 버튼으로 직접 맞춘 곡이야.' };
+  }
+  if (offset === null || w.has('no_downbeat') || w.has('insufficient_beats')) {
+    return { level: 'none', label: '🔴 근거 부족',
+      detail: '박·마디를 제대로 못 찾아서 카운트를 믿기 어려워. 「한 박」으로 직접 맞춰줘.' };
+  }
+  if (w.has('bar_alignment_needs_review') || w.has('count_drift_needs_review')) {
+    return { level: 'caution', label: '🔴 확인 필요',
+      detail: '마디 길이가 들쭉날쭉하거나 중간부터 어긋날 수 있어. 카운트 보며 「한 박」으로 맞춰줘.' };
+  }
+  const corrected = w.has('downbeat_phase_corrected');
+  return { level: 'auto', label: corrected ? '🟡 자동 교정함' : '🟡 자동 (안정적)',
+    detail: '앱이 자동으로 맞췄어. 대체로 안정적이지만 사람 확인은 아직이야 — 어긋나 보이면 「한 박」으로.' };
+}
+
 export function posOf(map, time) {
   return countAt(layout(map), time);
 }

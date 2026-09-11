@@ -65,6 +65,12 @@
   #fxNudge span { font-size:11px; color:var(--t3); white-space:nowrap; }
   #fxNudge button { flex:none; height:34px; padding:0 15px; border-radius:17px; border:1px solid var(--line);
                     background:transparent; color:var(--t1); font-size:13px; font-weight:600; white-space:nowrap; }
+  /* 신뢰 배지 — 앱이 이 곡을 얼마나 확신하는지 정직히(초록=검증은 정답 없이 못 줌). 정답 확보 전엔 노랑/빨강만. */
+  #trustBadge { flex:none; display:inline-block; margin:0 auto 2px; padding:3px 12px; border-radius:14px;
+                font-size:12px; font-weight:700; border:1px solid var(--line); background:transparent; color:var(--t2); }
+  #trustBadge.auto { color:var(--yellow); border-color:var(--yellow); }
+  #trustBadge.caution, #trustBadge.none { color:#ff6b6b; border-color:#ff6b6b; }
+  #trustBadge.manual { color:var(--t1); border-color:var(--line); }
 
   /* ── 타임라인 ── */
   #tlHead { display:flex; justify-content:space-between; align-items:baseline; padding:8px 16px 4px; font-size:11px; color:var(--t2); }
@@ -276,6 +282,7 @@
 </div>
 
 <div id="hud" hidden>
+  <button id="trustBadge" hidden title="앱이 이 곡을 얼마나 확신하는지 — 누르면 설명"></button>
   <div id="progressLine" class="num"></div>
   <div id="bigCount" class="idle num">–</div>
   <div id="cells" class="num"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div><div>7</div><div>8</div></div>

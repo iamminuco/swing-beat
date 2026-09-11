@@ -15,7 +15,7 @@ import { analyze, countAt } from '../core/analysis/analyze.js';
 import { createSongMap, songKey } from '../core/songmap/schema.js';
 import {
   layout, withOneShift, withOneFiveSwap, withOneAt, withSectionOne, withoutSectionOne,
-  withPhraseLen, withManualTempo, withMarker, withoutMarker, tempoBpm,
+  withPhraseLen, withManualTempo, withMarker, withoutMarker, tempoBpm, songTrust,
 } from '../core/songmap/songmap.js';
 import { prevMarker, nextMarker, loopRange, markerNear } from '../core/songmap/navigate.js';
 import { saveSongMap, loadSongMap, listSongMaps } from '../storage/songstore.js';
@@ -260,10 +260,22 @@ function rebuild() {
   paintDrift();
   lastKey = null; // HUD 캐시 무효화 — 같은 카운트 숫자라도 프레이즈·강조가 바뀔 수 있다
   paintCells(null);
+  paintTrust();
   $('btnAccent').classList.toggle('on', map.accent === 'EVEN');
   setSpeed(Math.round(map.rate * 100), false);
   if (!$('infoSheet').hidden) paintInfoStats();
   $('fxUndoSection').disabled = map.corrections.sectionOnes.length === 0;
+}
+
+// 신뢰 배지 — 앱이 이 곡을 얼마나 확신하는지 정직히(초록=검증은 정답 없이 못 줌).
+let trustDetail = '';
+function paintTrust() {
+  const t = songTrust(map);
+  const b = $('trustBadge');
+  b.className = t.level;
+  b.textContent = t.label;
+  b.hidden = false;
+  trustDetail = t.detail;
 }
 
 function paintSub() {
@@ -765,6 +777,7 @@ $('fxHereHud').onclick = fixOneHere; // 재생 화면 카운트 아래 상시 �
 // 동시에 교정한다. 곡별 1회 저장이라 다시 열어도 유지된다.
 $('fxBackHud').onclick = () => applyMap(withOneShift(map, -1), '1을 한 박자 앞으로');
 $('fxFwdHud').onclick = () => applyMap(withOneShift(map, 1), '1을 한 박자 뒤로');
+$('trustBadge').onclick = () => { if (trustDetail) toast(trustDetail); };
 $('fxGlobalHere').onclick = () => applyMap(withOneAt(map, au.currentTime), '곡 전체의 1을 여기로 옮겼어요');
 $('fxUndoSection').onclick = () => {
   const s = map.corrections.sectionOnes;
