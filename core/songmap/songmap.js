@@ -10,7 +10,7 @@
 // there exactly. Moving the anchor (withOneAt, withOneShift) clears that
 // return point; tempo and phrase-length changes keep it — the return point is
 // a time, so "press again to go back" stays true across grid switches.
-import { layoutGrid, countAt, phaseVoteOffset } from '../analysis/analyze.js';
+import { layoutGrid, countAt, phaseVoteOffset, GRID_ENGINE } from '../analysis/analyze.js';
 import { migrateSongMap, createSongMap, MARKER_EPSILON } from './schema.js';
 
 function tempoBeats(analysis, manualTempo) {
@@ -19,8 +19,11 @@ function tempoBeats(analysis, manualTempo) {
   if (manualTempo === 'double') {
     beats = beats.flatMap((t, i) => i + 1 < beats.length ? [t, (t + beats[i + 1]) / 2] : [t]);
   } else if (manualTempo === 'half' && beats.length) {
-    const first = downbeats.length ? beats.indexOf(downbeats[0]) : 0;
-    const parity = first % 2;
+    // 살아남을 홀/짝은 다운비트 다수결(자동 절반과 같은 규칙). 첫 다운비트만 따르면 첫 마디가 9박인 곡에서
+    // 다운비트 15개 중 14개를 버리고 첫 1이 옮겨졌다(astra 2026-09-11 재현). 동률이면 짝수.
+    const idx = downbeats.map(t => beats.indexOf(t)).filter(i => i >= 0);
+    const odd = idx.filter(i => i % 2 === 1).length;
+    const parity = odd > idx.length - odd ? 1 : 0;
     beats = beats.filter((_, i) => i % 2 === parity);
     const kept = new Set(beats);
     downbeats = downbeats.filter(t => kept.has(t));
@@ -121,6 +124,12 @@ export function anchorsOffGrid(map, beats = effectiveGrid(map).beats) {
 export function songTrust(map) {
   const w = new Set(map.analysis?.warnings ?? []);
   const { beats, barPhase: { offset } } = effectiveGrid(map);
+  // 옛 엔진 분석(아직 재분석 전이거나 재분석이 실패한 곡)은 노랑 '자동'으로 보이면 안 된다(sol 2026-09-11):
+  // 새 경고(예: 템포 확인)를 못 받은 상태다. 곡을 열면 다시 분석되고 이 표시는 사라진다.
+  if ((map.analysis?.engine ?? null) !== GRID_ENGINE) {
+    return { level: 'caution', label: '🔴 열면 다시 분석',
+      detail: '박자 엔진이 새로워졌어. 이 곡을 열면 다시 분석해서 배지를 새로 매겨(직접 맞춘 자리는 그대로).' };
+  }
   if (w.has('manual_tempo_clamped')) {
     return { level: 'caution', label: '🔴 확인 필요',
       detail: '엔진이 새로워지면서 네가 고른 반/두 배를 그대로 옮길 수 없었어(4배·¼배는 앱에 없어). 곡 정보에서 반/두 배를 다시 골라줘 — 고르면 이 표시는 사라져.' };
@@ -129,9 +138,14 @@ export function songTrust(map) {
     return { level: 'caution', label: '🔴 확인 필요',
       detail: '네가 직접 맞춘 자리가 지금 격자의 박 위에 있지 않아(엔진이 새로워졌거나 반/두 배를 바꿨을 때 생겨). 카운트 보며 「한 박」으로 다시 맞춰줘.' };
   }
-  if (w.has('tempo_fast_review') && map.corrections?.manualTempo === null) {
+  // 템포 확인은 저장 경고가 아니라 지금 격자의 실제 BPM으로 본다(astra: 240에서 「두 배」를 누르면 480인데 '자동'이 됐다).
+  // 290 초과면 어떤 선택이든 확인, 220 초과는 사용자가 반/두 배를 아직 안 골랐을 때만.
+  const bpm = tempoBpm(map);
+  if (bpm !== null && (bpm > 290 || (bpm > 220 && map.corrections?.manualTempo === null))) {
     return { level: 'caution', label: '🔴 템포 확인',
-      detail: '220 BPM이 넘는 빠른 격자야. 실제로는 절반 빠르기(느린 곡을 두 배로 들은 것)일 수 있어 — 곡 정보에서 「반」을 눌러 비교해봐. 진짜 빠른 곡이면 「두 배」를 골랐다 되돌려도 돼.' };
+      detail: bpm > 290
+        ? `${bpm} BPM은 춤출 수 있는 빠르기가 아니야 — 곡 정보에서 「반」을 눌러봐.`
+        : '220 BPM이 넘는 빠른 격자야. 실제로는 절반 빠르기(느린 곡을 두 배로 들은 것)일 수 있어 — 곡 정보에서 「반」을 눌러 비교해봐.' };
   }
   if (map.corrections?.oneAnchorTime != null) {
     return { level: 'manual', label: '✋ 직접 맞춤',

@@ -220,7 +220,7 @@ async function analyzeAndSave(file, progress, isCurrent = () => true) {
     toast((failed ? '예전 분석으로 열었고, ' : '') +
       `「${baseName(file.name)}」 파일을 기기에 저장하지 못했어요(용량 부족?) — 다음엔 다시 골라야 해요`);
   }
-  return { m, pcm, fresh, refreshed, failed };
+  return { m, pcm, fresh, refreshed, failed: failed || !stored }; // 파일 저장 실패도 '실패 안내가 떠 있음'으로 전달(astra)
 }
 
 // 재생 화면에 곡을 올린다(파일이든 저장 blob이든 공통).
