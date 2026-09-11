@@ -187,6 +187,12 @@ export function withTruth(map, ones) {
   return updated(map, { truth: { ones: clean, recordedAt: new Date().toISOString() } });
 }
 
+// 되돌리기용: 이전 지도로 돌아가되 사람이 찍은 정답 탭은 잃지 않는다(codex 17차: 기록 직후 되돌리기가 탭을 지웠다).
+// 지금 탭이 있으면 그대로, 지금 탭이 없으면(「지우기」 뒤) 이전 탭을 되살린다.
+export function restoreKeepingTruth(prev, cur) {
+  return migrateSongMap({ ...prev, truth: cur.truth ?? prev.truth ?? null });
+}
+
 export function withoutTruth(map) {
   return updated(map, { truth: null });
 }

@@ -16,7 +16,7 @@ import { createSongMap, songKey } from '../core/songmap/schema.js';
 import {
   layout, withOneShift, withOneFiveSwap, withOneAt, withSectionOne, withoutSectionOne,
   withPhraseLen, withManualTempo, withMarker, withoutMarker, tempoBpm, songTrust,
-  refreshAnalysis, withTruth, withoutTruth, applyTruth, countAtTaps, truthVerdict,
+  refreshAnalysis, withTruth, withoutTruth, applyTruth, countAtTaps, truthVerdict, restoreKeepingTruth,
 } from '../core/songmap/songmap.js';
 import { prevMarker, nextMarker, loopRange, markerNear } from '../core/songmap/navigate.js';
 import { saveSongMap, loadSongMap, listSongMaps } from '../storage/songstore.js';
@@ -316,10 +316,10 @@ function paintUndo() {
 function undoLast() {
   const prev = undoStack.pop();
   if (!prev || !map || songKey(prev.song) !== songKey(map.song)) { paintUndo(); toast('되돌릴 게 없어요'); return; }
-  map = saveSongMap(prev);
+  map = saveSongMap(restoreKeepingTruth(prev, map)); // 보정만 되돌리고 정답 탭은 남긴다
   rebuild(); resync(); if (loopOn) updateLoop();
   paintUndo();
-  toast('방금 보정을 되돌렸어요');
+  toast('방금 보정을 되돌렸어요' + (map.truth ? ' (정답 기록은 그대로)' : ''));
 }
 function applyMap(next, msg) {
   if (next === map) return;
