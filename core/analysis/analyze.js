@@ -4,7 +4,8 @@ import { inspectSignal } from './signal.js';
 // 다르면 앱이 곡을 열 때 다시 분석한다(사용자의 1·마커·설정은 유지). codex 2026-09-11: 저장곡은 analyze()를
 // 건너뛰어 글리치 필터·템포 게이트 수리가 기존 곡에 전혀 적용되지 않았다.
 //   1 = 첫 다운비트 앵커(9/7) · 2 = 다운비트 최빈 위상 투표(9/10) · 3 = 글리치 박 필터 + 템포 증거 게이트(9/11)
-export const GRID_ENGINE = 3;
+//   4 = 220 BPM 초과 옥타브 주의 경고(9/11 밤) — 경고만 바뀌어도 저장곡이 다시 받도록 올린다(codex 7차)
+export const GRID_ENGINE = 4;
 
 function median(values) {
   if (!values.length) return null;
@@ -159,6 +160,11 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   } else if (rawBpm !== null && (rawBpm < 110 || rawBpm > 290)) {
     warnings.push('tempo_out_of_range');
   }
+  // 옥타브 주의: 220 BPM을 넘는 격자는 모델이 절반 템포(110~145)의 곡을 두 배로 들었을 가능성이 있다.
+  // GTZAN 실측 2026-09-11: 앱 230~250 BPM인 9곡의 정답이 전부 115~126 BPM(모델 자신은 4박 마디로 일관해
+  // 증거 게이트로는 못 가름). 카운트는 바꾸지 않고 배지로만 알린다 — 정답은 춤 감각(반 템포 버튼)이 정한다.
+  const gridBpm = rawBpm === null ? null : rawBpm * tempoFactor;
+  if (gridBpm !== null && gridBpm > 220) warnings.push('tempo_fast_review');
   const correctedSet = new Set(beats);
   const keptDownbeats = downbeats.filter(t => correctedSet.has(t));
   // 다운비트 최빈 위상으로 격자 시작(1)을 고른다 — 스윙 백비트 착각 자동교정(phaseVoteOffset).

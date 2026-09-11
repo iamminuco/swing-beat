@@ -129,6 +129,10 @@ export function songTrust(map) {
     return { level: 'caution', label: '🔴 확인 필요',
       detail: '네가 직접 맞춘 자리가 지금 격자의 박 위에 있지 않아(엔진이 새로워졌거나 반/두 배를 바꿨을 때 생겨). 카운트 보며 「한 박」으로 다시 맞춰줘.' };
   }
+  if (w.has('tempo_fast_review') && map.corrections?.manualTempo === null) {
+    return { level: 'caution', label: '🔴 템포 확인',
+      detail: '220 BPM이 넘는 빠른 격자야. 실제로는 절반 빠르기(느린 곡을 두 배로 들은 것)일 수 있어 — 곡 정보에서 「반」을 눌러 비교해봐. 진짜 빠른 곡이면 「두 배」를 골랐다 되돌려도 돼.' };
+  }
   if (map.corrections?.oneAnchorTime != null) {
     return { level: 'manual', label: '✋ 직접 맞춤',
       detail: '네가 「한 박」 버튼으로 직접 맞춘 곡이야.' };
