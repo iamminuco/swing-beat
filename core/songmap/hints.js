@@ -2,18 +2,23 @@
 // "앱이 직접 정해라"는 요청에 대한 답: 이 세션에서 화음 변화 단서(2·4박 창, 전체/베이스 크로마)를 곡별로 재서,
 // 네 단서가 모두 강하게 '앱의 5 자리가 8카운트 시작'이라고 가리킨 곡만 1↔5를 미리 바꾼다.
 // 정답이 아니라 추정이다: 배지에 「앱 추정(구조)」로 표시하고, 1↔5 버튼 한 번으로 되돌린다. 사람 확인(1 찍기)이 있으면 무시.
-// 곡 식별은 파일 이름(확장자·접두 제거)으로 한다 — 사용자 폰의 파일이 wav인지 mp3인지 모르기 때문.
+// 곡 식별 = 파일 이름(확장자·접두 제거) + **길이(±1.5초)** — 이름만 보면 같은 제목의 다른 녹음/편집본에도 적용된다(codex 18차).
+// 길이는 분석한 그 녹음(wav)의 값이고, 같은 녹음의 mp3는 인코더 여백 때문에 0.1초 안팎만 다르다.
 // 검증(2026-09-12, GTZAN 재즈 83곡·정답 있음): 이 단서(전체 크로마·2박 창)는 '마디 시작'을 여유>0.1일 때 77%(50/65) 맞혔다
 // (베이스·4박 창은 58~65%). 8카운트 수준은 정답이 없어 미검증. 앱의 기존 1↔5 선택은 첫 다운비트 자리에 달린 우연이라
 // 이 단서가 넷 다 강하게 한쪽을 가리키면 그쪽이 더 낫다고 판단했다. 판정: research/beat_tests/class_chord_check.json.
 export const STRUCTURE_HINTS = [
-  { match: 'mulligan stew', swap15: true, at: '2026-09-12',
+  { match: 'mulligan stew', duration: 233.87, swap15: true, at: '2026-09-12',
     cues: '화음 변화 단서 4개 전부 5 자리(전체2 −0.33·전체4 −0.50·베이스2 −0.23·베이스4 −0.27) + 전날 프레이즈 단서(8박 −0.59·16박 −0.08)' },
-  { match: 'as long as i live', swap15: true, at: '2026-09-12',
+  { match: 'as long as i live', duration: 170.43, swap15: true, at: '2026-09-12',
     cues: '화음 변화 단서 4개 전부 5 자리(−0.28·−0.27·−0.24·−0.22) + 전날 프레이즈 단서(8박 −0.18·16박 −0.13)' },
 ];
 
-export function structureHintFor(name) {
+export const HINT_DURATION_TOL = 1.5;
+export function structureHintFor(song) {
+  const name = typeof song === 'string' ? song : song?.name;
+  const duration = typeof song === 'string' ? null : song?.duration;
   const n = String(name ?? '').toLowerCase().replace(/\.[^.]+$/, '');
-  return STRUCTURE_HINTS.find(h => n.includes(h.match.toLowerCase())) ?? null;
+  return STRUCTURE_HINTS.find(h => n.includes(h.match.toLowerCase()) &&
+    Number.isFinite(duration) && Math.abs(duration - h.duration) <= HINT_DURATION_TOL) ?? null;
 }

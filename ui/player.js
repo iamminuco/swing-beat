@@ -185,7 +185,7 @@ async function refreshIfStale(m, pcm, progress, isCurrent = () => true) {
   const latest = loadSongMap(m.song) ?? m; // 분석하는 동안 사용자가 고쳤을 수 있다
   if (latest.analysis.engine === GRID_ENGINE) return { m: latest, refreshed: false, failed: false }; // 다른 요청이 이미 갱신했다
   try {
-    return { m: saveSongMap(applyStructureHint(refreshAnalysis(latest, grid), structureHintFor(m.song.name))), refreshed: true, failed: false };
+    return { m: saveSongMap(applyStructureHint(refreshAnalysis(latest, grid), structureHintFor(m.song))), refreshed: true, failed: false };
   } catch (err) {
     // 저장 실패(용량 부족 등)도 열기를 막으면 안 된다(codex 5차 P1) — 옛 지도로 연다
     toast('새 분석을 저장하지 못해 예전 분석으로 열어요: ' + (err?.message || err));
@@ -207,10 +207,10 @@ async function analyzeAndSave(file, progress, isCurrent = () => true) {
     // 덮어쓴다(codex 4차 P1). 저장 직전에 다시 확인: 이미 있으면 그걸 쓰고, 옛 엔진이면 그 위에 입힌다.
     const latest = loadSongMap(song);
     if (latest) {
-      m = latest.analysis.engine === GRID_ENGINE ? latest : saveSongMap(applyStructureHint(refreshAnalysis(latest, grid), structureHintFor(song.name)));
+      m = latest.analysis.engine === GRID_ENGINE ? latest : saveSongMap(applyStructureHint(refreshAnalysis(latest, grid), structureHintFor(song)));
       refreshed = m !== latest;
     } else {
-      m = saveSongMap(applyStructureHint(createSongMap(song, grid), structureHintFor(song.name)));
+      m = saveSongMap(applyStructureHint(createSongMap(song, grid), structureHintFor(song)));
       fresh = true;
     }
   } else {
