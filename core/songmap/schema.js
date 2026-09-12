@@ -55,7 +55,7 @@ export function createSongMap(song, grid) {
       tempoFactor: grid.tempoFactor,
       warnings: [...grid.diagnostics.warnings],
     },
-    corrections: { oneAnchorTime: null, oneFiveReturnTime: null, manualTempo: null, sectionOnes: [] },
+    corrections: { oneAnchorTime: null, oneFiveReturnTime: null, manualTempo: null, sectionOnes: [], source: 'user' },
     truth: null,
     markers: [],
     phraseLen: 4,
@@ -123,7 +123,7 @@ export function migrateSongMap(raw) {
   // returns exactly. Unknown correction fields are refused, never dropped: a
   // silently ignored field would erase a user's saved correction.
   const corrections = raw.corrections ?? { oneAnchorTime: null, oneFiveReturnTime: null, manualTempo: null, sectionOnes: [] };
-  const knownCorrections = ['oneAnchorTime', 'oneFiveReturnTime', 'manualTempo', 'sectionOnes'];
+  const knownCorrections = ['oneAnchorTime', 'oneFiveReturnTime', 'manualTempo', 'sectionOnes', 'source'];
   for (const key of Object.keys(corrections)) {
     if (!knownCorrections.includes(key)) throw new RangeError(`Unknown correction field: ${key}`);
   }
@@ -135,6 +135,9 @@ export function migrateSongMap(raw) {
     }
   }
   if (!MANUAL_TEMPOS.includes(corrections.manualTempo)) throw new RangeError('corrections.manualTempo invalid');
+  // 보정의 출처: 'user'(사람이 눌렀다) | 'structure'(앱이 구조 단서로 미리 바꿨다 — 배지에 정직하게 표시). 옛 지도는 'user'.
+  const source = corrections.source ?? 'user';
+  if (!['user', 'structure'].includes(source)) throw new RangeError('corrections.source invalid');
   // 구간별 「여기부터 1」: counting restarts at 1 at each of these moments.
   // The real-song measurement behind this (11/12 songs drift after one odd bar)
   // is in BEAT_APP_HANDOFF.md; a global 1 alone cannot repair a mid-song break.
@@ -203,6 +206,7 @@ export function migrateSongMap(raw) {
       oneFiveReturnTime: oneFiveReturn,
       manualTempo: corrections.manualTempo,
       sectionOnes,
+      source,
     },
     truth,
     markers, phraseLen, accent, rate,

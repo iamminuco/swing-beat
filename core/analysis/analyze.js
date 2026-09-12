@@ -5,7 +5,8 @@ import { inspectSignal } from './signal.js';
 // 건너뛰어 글리치 필터·템포 게이트 수리가 기존 곡에 전혀 적용되지 않았다.
 //   1 = 첫 다운비트 앵커(9/7) · 2 = 다운비트 최빈 위상 투표(9/10) · 3 = 글리치 박 필터 + 템포 증거 게이트(9/11)
 //   4 = 220 BPM 초과 옥타브 주의 경고(9/11 밤) — 경고만 바뀌어도 저장곡이 다시 받도록 올린다(codex 7차)
-export const GRID_ENGINE = 4;
+//   5 = 곡별 구조 추정(hints.js) 적용(9/12) — 저장곡도 열 때 추정을 받도록
+export const GRID_ENGINE = 5;
 
 function median(values) {
   if (!values.length) return null;

@@ -326,6 +326,10 @@ export function songTrust(map) {
         ? `숫자가 1분에 ${bpm}번 — 춤출 수 있는 빠르기가 아니에요. 곡 정보에서 「반으로」를 눌러 보세요.`
         : '숫자가 두 배 빠를 수 있어요(느린 곡을 두 배로 들은 것). 곡 정보에서 「반으로」를 눌러 비교해 보세요.' };
   }
+  if (map.corrections?.oneAnchorTime != null && map.corrections.source === 'structure') {
+    return { level: 'auto', label: '🟡 앱 추정(구조) · 확인 전',
+      detail: '이 곡은 앱이 화음이 바뀌는 자리를 근거로 1과 5를 바꿔 뒀어요(정답은 아니에요). 이상하면 곡 정보의 「1↔5」 한 번으로 원래대로 돌아가요.' };
+  }
   if (map.corrections?.oneAnchorTime != null) {
     return { level: 'manual', label: '✋ 내가 맞춤',
       detail: '「한 박」이나 「여기가 1」로 직접 맞춘 곡이에요. 앱이 확인한 건 아니에요.' };
@@ -367,7 +371,18 @@ function updated(map, patch) {
 }
 
 function withCorrections(map, corrections) {
-  return updated(map, { corrections: { ...map.corrections, ...corrections } });
+  // 사람이 누른 보정은 출처를 'user'로 되돌린다(앱 구조 추정 표시 해제). 명시적으로 source를 주면 그것을 쓴다.
+  return updated(map, { corrections: { ...map.corrections, source: 'user', ...corrections } });
+}
+
+// 곡별 구조 추정(hints.js)을 적용한다: 사람 확인(1 찍기)도, 직접 맞춘 자리도 없는 곡에만. 1↔5를 바꾸고 출처를
+// 'structure'로 남겨 배지가 「앱 추정(구조)」로 보이게 한다. 1↔5 버튼 한 번이면 정확히 원래로 돌아간다(oneFiveReturnTime).
+export function applyStructureHint(map, hint) {
+  if (!hint || !hint.swap15) return map;
+  if (map.truth || map.corrections.oneAnchorTime !== null || map.corrections.sectionOnes.length) return map;
+  const swapped = withOneFiveSwap(map);
+  if (swapped === map) return map;
+  return updated(swapped, { corrections: { ...swapped.corrections, source: 'structure' } });
 }
 
 // 여기가 1: anchor the count to the beat nearest this moment. This is also the
