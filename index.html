@@ -237,6 +237,12 @@
   #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:110px;
            background:#000c; color:#fff; padding:8px 14px; border-radius:10px;
            font-size:13px; display:none; z-index:40; max-width:88%; }
+  #videoPanel { flex:none; padding:4px 12px; max-height:44dvh; overflow-y:auto; }
+  #video { display:block; width:100%; height:19dvh; background:#000; object-fit:contain; }
+  #videoPanel label { display:inline-block; font-size:12px; margin:4px; }
+  #videoPanel select, #syncRatio { max-width:100%; background:var(--card); color:var(--t0); font:inherit; }
+  #videoPanel button { padding:6px 10px; font-size:12px; }
+  #videoStatus, #musicRange { font-size:12px; line-height:1.4; margin:4px 0; }
 </style>
 </head>
 <body>
@@ -282,9 +288,23 @@
     「파일」 앱에 저장된 곡(mp3·wav 등)만 열 수 있어요. 음악 앱 곡은 저작권 잠금이에요.
   </div>
   <input type="file" id="fileInput" multiple
-         accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,audio/mpeg,audio/mp4,audio/wav" hidden>
+         accept="audio/*,video/*,.mp4,.mov,.webm,.mp3,.m4a,.wav,.aac,.ogg,.flac,audio/mpeg,audio/mp4,audio/wav" hidden>
 </div>
 
+<section id="videoPanel" hidden aria-label="동영상과 음악">
+  <video id="video" playsinline preload="metadata" hidden></video>
+  <label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
+  <button id="chooseMusic">음악 파일 선택·바꾸기</button>
+  <input id="musicInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden>
+  <label>박 기준 <select id="videoBasis" disabled><option value="video">동영상 소리</option><option value="music">내 음악 파일</option></select></label>
+  <div><button id="offsetEarlier">음악 시작 0.1초 앞</button> <span id="syncOffset">0.00초</span> <button id="offsetLater">음악 시작 0.1초 뒤</button>
+  <label>영상에 맞춘 음악 빠르기 <input id="syncRatio" type="number" min="0.8" max="1" step="0.001" value="1"></label></div>
+  <div><button id="offsetEarlierLarge">음악 시작 1초 앞</button> <button id="offsetLaterLarge">음악 시작 1초 뒤</button></div>
+  <div><span id="recommendedFit"></span> <button id="applyRecommendation" hidden>추천값 적용</button></div>
+  <div id="videoStatus" role="status"></div>
+  <div id="musicRange" hidden>음악 파일 구간 밖이에요. 영상은 계속 재생돼요.</div>
+  <div style="font-size:11px">맞춤 설정은 이번 열기 동안 유지돼요. 음악 박 기준의 보정은 동영상 기준으로 바꾼 뒤 할 수 있어요.</div>
+</section>
 <div id="hud" hidden>
   <button id="trustBadge" hidden title="앱이 이 곡을 얼마나 확신하는지 — 누르면 설명"></button>
   <div id="progressLine" class="num"></div>
@@ -453,6 +473,7 @@
 <div id="resultView" class="overlay" hidden></div>
 <div id="toast"></div>
 <audio id="au" preload="auto"></audio>
+<audio id="replacementAudio" preload="auto"></audio>
 <script>
 // 인앱 브라우저 감지 + 첫 실행 안내 — 모듈과 독립(파일 못 열어도 이 안내는 뜬다)
 (function () {

@@ -23,6 +23,8 @@ import { prevMarker, nextMarker, loopRange, markerNear } from '../core/songmap/n
 import { saveSongMap, loadSongMap, listSongMaps } from '../storage/songstore.js';
 import { decodeToModelRate, MODEL_SR } from '../audio/decode.js';
 import { createClickEngine } from '../audio/click.js';
+import { isVideoFile, checkVideoSize } from '../core/video-sync.js';
+import { hasVideoTrack, createVideoSession, primeMedia } from '../audio/video.js';
 import { startGame } from './game.js';
 import { startBounce } from './bounce.js';
 import { startListening } from './listen.js';
@@ -36,7 +38,26 @@ const LAST_SONG = 'beatapp_last_song';
 const PREFS = 'beatapp_prefs_v1'; // 컨트롤 펼침 · 강세 방식
 
 const $ = id => document.getElementById(id);
-const au = $('au');
+let au = $('au');
+let videoSession = null;
+let unsavedSong = false;
+const audioOnlyBlobs = new WeakSet(), sessionVideos = new Map();
+function isVideoSong(m) {
+  if (sessionVideos.has(songKey(m.song))) return true;
+  try {
+    const kind = localStorage.getItem('beatapp_media:' + songKey(m.song));
+    if (kind) return kind === 'video';
+  } catch { /* private mode */ }
+  return false;
+}
+function primeVideo() {
+  primeMedia($('replacementAudio'));
+  const el = $('video');
+  if (!el.src) primeMedia(el);
+}
+function mediaBlob(m) {
+  return isVideoSong(m) ? Promise.resolve(sessionVideos.get(songKey(m.song)) || null) : loadAudio(songKey(m.song));
+}
 
 let map = null, lay = null, samples = null, rows = [];
 let session = null, filterbank = null;
@@ -80,7 +101,13 @@ function ensureCtx() {
 // 크롬 다시 앞으로 → 재생 시 노이즈). 그래서: 숨을 때 예약을 비우고, 돌아올 때 ctx를 깨우고 다시 비운 뒤
 // 스케줄러 자리를 재정렬한다. (학습 화면은 자체 스케줄러라 예약 비움만 하면 다음 틱에서 스스로 다시 맞춘다.)
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { engine.cancelPending(); return; }
+  if (document.hidden) {
+    if (videoSession) {
+      clearTimeout(countInTimer); countInTimer = null;
+      videoSession.transport.pause(); videoSession.resetGain();
+    }
+    engine.cancelPending(); return;
+  }
   if (audioCtx) ensureCtx();
   engine.cancelPending();
   if (!learning) resync();
@@ -96,6 +123,7 @@ let accentState = { nextIdx: 0 };
 // 기본 경로(click 강세·강세 꺼짐)는 이 함수를 안 부르고 <audio>가 스피커로 바로 나간다.
 function ensureMediaGraph() {
   const ctx = ensureCtx();
+  if (videoSession) return videoSession.ensureMediaGraph(ctx);
   if (!mediaSrc) {
     mediaSrc = ctx.createMediaElementSource(au);
     accentGain = ctx.createGain();
@@ -195,9 +223,27 @@ async function refreshIfStale(m, pcm, progress, isCurrent = () => true) {
 
 // 곡 하나를 분석해 SongMap을 저장한다(이미 저장돼 있으면 즉시). UI는 안 건드린다.
 async function analyzeAndSave(file, progress, isCurrent = () => true) {
+  const candidate = isVideoFile(file);
+  if (candidate) checkVideoSize(file);
+  let hasTrack = false, videoFallback = false;
+  if (candidate) {
+    try { hasTrack = await hasVideoTrack(file); }
+    catch { videoFallback = true; }
+  }
+  if (candidate && !hasTrack) audioOnlyBlobs.add(file);
   const { samples: pcm, duration } = await decodeToModelRate(file);
   const song = { name: file.name, size: file.size, duration };
   let m = loadSongMap(song);
+  if (videoFallback) {
+    const fresh = !m;
+    if (!m) {
+      await ensureModel(progress);
+      const grid = analyze(pcm, MODEL_SR, await analyseSamples(pcm, progress));
+      m = applyStructureHint(createSongMap(song, grid), structureHintFor(song));
+    }
+    toast('영상 화면을 못 읽어 소리만 열었어요');
+    return { m, pcm, fresh, refreshed: false, videoFallback: true, failed: true };
+  }
   let fresh = false, refreshed = false, failed = false;
   if (!m) {
     await ensureModel(progress);
@@ -216,27 +262,54 @@ async function analyzeAndSave(file, progress, isCurrent = () => true) {
   } else {
     ({ m, refreshed, failed } = await refreshIfStale(m, pcm, progress, isCurrent));
   }
-  const stored = await saveAudio(songKey(m.song), file); // 기기 안 저장 — 다음에 열 때 파일 재선택 불요
+  if (candidate || /\.(mp4|mov|webm)$/i.test(file.name || '')) {
+    try { localStorage.setItem('beatapp_media:' + songKey(m.song), hasTrack ? 'video' : 'audio'); } catch { /* private mode */ }
+  }
+  if (hasTrack) sessionVideos.set(songKey(m.song), file);
+  const stored = hasTrack || await saveAudio(songKey(m.song), file); // 기기 안 저장 — 다음에 열 때 파일 재선택 불요
   if (!stored) { // 재분석 실패 안내가 있었으면 한 토스트로 합친다(codex 6차: 뒤 토스트가 앞 안내를 덮었다)
     toast((failed ? '예전 분석으로 열었고, ' : '') +
       `「${baseName(file.name)}」 파일을 기기에 저장하지 못했어요(용량 부족?) — 다음엔 다시 골라야 해요`);
   }
-  return { m, pcm, fresh, refreshed, failed: failed || !stored }; // 파일 저장 실패도 '실패 안내가 떠 있음'으로 전달(astra)
+  return { m, pcm, fresh, refreshed, videoFallback, failed: failed || !stored }; // 파일 저장 실패도 '실패 안내가 떠 있음'으로 전달(astra)
 }
 
 // 재생 화면에 곡을 올린다(파일이든 저장 blob이든 공통).
-function mountSong(m, pcm, blob) {
+function mountSong(m, pcm, blob, temporary = false) {
+  unsavedSong = temporary;
   clearTimeout(countInTimer); countInTimer = null;
   queue = queue.length ? queue : []; // 연속 재생 큐는 호출자가 관리
   // 저장소가 정본이다: 파일 저장(saveAudio)을 기다리는 사이 사용자가 같은 곡에 마커를 찍었으면 그게 최신이고,
   // 여기서 옛 m을 올리면 다음 편집 저장이 그 마커를 지운다(codex 3차 P1, 기존 경합).
-  map = loadSongMap(m.song) ?? m;
+  map = temporary ? m : (loadSongMap(m.song) ?? m);
   undoStack.length = 0; // 다른 곡의 보정을 이 곡에 되돌리지 않는다
   samples = pcm;
+  if (videoSession) { videoSession.dispose(); videoSession = null; au = $('au'); }
+  if (isVideoFile({ name: m.song.name, type: blob.type }) && !audioOnlyBlobs.has(blob) && isVideoSong(m)) {
+    au.pause(); au.removeAttribute('src'); au.load();
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = null;
+    videoSession = createVideoSession({
+      $, blob, pcm, videoMap: map, ensureCtx,
+      analyzeMusic: async (file, progress) => {
+        const { samples: musicPcm, duration } = await decodeToModelRate(file);
+        await ensureModel(progress);
+        const grid = analyze(musicPcm, MODEL_SR, await analyseSamples(musicPcm, progress));
+        return { pcm: musicPcm, m: createSongMap({ name: file.name, size: file.size, duration }, grid) };
+      },
+      onChange: () => { rebuild(); resync(); if (loopOn) updateLoop(); },
+      onClockChange: () => { if (!learning) resync(); },
+    });
+    au = videoSession.transport;
+    bindPlayback(au);
+  } else {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = URL.createObjectURL(blob);
   au.src = objectUrl;
-  try { localStorage.setItem(LAST_SONG, songKey(m.song)); } catch { /* private */ }
+  }
+  if (!temporary) {
+    try { localStorage.setItem(LAST_SONG, songKey(m.song)); } catch { /* private */ }
+  }
   $('songTitle').textContent = baseName(m.song.name);
   $('dropZone').hidden = true;
   $('topBar').hidden = false;
@@ -246,19 +319,20 @@ function mountSong(m, pcm, blob) {
 }
 
 async function openFile(file, prefix = '') {
+  videoSession?.cancelAlignment();
   const seq = ++openSeq;
   const progress = t => { if (seq === openSeq) $('progress').textContent = prefix + t; };
   try {
     progress('곡 읽는 중…');
     analyzing.add(file.name);
-    const { m, pcm, fresh, refreshed, failed } = await analyzeAndSave(file, progress, () => seq === openSeq);
+    const { m, pcm, fresh, refreshed, failed, videoFallback } = await analyzeAndSave(file, progress, () => seq === openSeq);
     analyzing.delete(file.name);
     if (seq !== openSeq) return; // 그새 다른 곡을 골랐다 — 저장만 하고 화면은 안 바꾼다
-    mountSong(m, pcm, file);
-    if (refreshed) toast(refreshToast(m)); // 재분석 안내가 '불러왔어요'에 덮이지 않게 뒤에, 그리고 하나만
+    mountSong(m, pcm, file, videoFallback);
+    if (refreshed && !videoFallback) toast(refreshToast(m)); // 재분석 안내가 '불러왔어요'에 덮이지 않게 뒤에, 그리고 하나만
     else if (!fresh && !failed) toast('저장된 박자 설정을 불러왔어요'); // 실패 안내도 덮지 않는다(codex 5차)
     // 보정 시트를 먼저 들이밀지 않는다 — 우선 들려주고, 어긋날 때만 안내한다.
-    if (fresh && map.analysis.warnings.includes('count_drift_needs_review')) {
+    if (fresh && !videoFallback && map.analysis.warnings.includes('count_drift_needs_review')) {
       toast('중간에 박자가 어긋나게 들리면, 카운트 아래 「여기가 1」을 그 순간에 눌러 주세요 — 거기부터 다시 맞아요');
     }
   } catch (err) {
@@ -315,17 +389,22 @@ function paintUndo() {
   for (const id of ['fxUndoHud', 'fxUndo']) { const b = $(id); if (b) b.disabled = !can; }
 }
 function undoLast() {
+  if (videoSession?.usesMusicMap) { toast('동영상 박 기준으로 바꾸면 동영상 보정을 되돌릴 수 있어요'); return; }
   const prev = undoStack.pop();
   if (!prev || !map || songKey(prev.song) !== songKey(map.song)) { paintUndo(); toast('되돌릴 게 없어요'); return; }
-  map = saveSongMap(restoreKeepingTruth(prev, map)); // 보정만 되돌리고 정답 탭은 남긴다
+  const restored = restoreKeepingTruth(prev, map);
+  map = unsavedSong ? restored : saveSongMap(restored); // 보정만 되돌리고 정답 탭은 남긴다
   rebuild(); resync(); if (loopOn) updateLoop();
   paintUndo();
   toast('방금 보정을 되돌렸어요' + (map.truth ? ' (정답 기록은 그대로)' : ''));
 }
 function applyMap(next, msg) {
   if (next === map) return;
+  if (videoSession?.usesMusicMap && (next.corrections !== map.corrections || next.truth !== map.truth || next.phraseLen !== map.phraseLen)) {
+    toast('박 보정은 동영상 박 기준으로 바꾼 뒤 해 주세요'); return;
+  }
   pushUndo(map);
-  map = saveSongMap(next); // 저장이 돌려주는 검증본이 정본
+  map = unsavedSong ? next : saveSongMap(next); // 저장이 돌려주는 검증본이 정본
   rebuild();
   resync();
   if (loopOn) updateLoop();
@@ -333,7 +412,7 @@ function applyMap(next, msg) {
 }
 
 function rebuild() {
-  lay = layout(map);
+  lay = videoSession ? videoSession.layout(layout(map)) : layout(map);
   buildRows();
   drawTimeline();
   paintSub();
@@ -351,7 +430,7 @@ function rebuild() {
 // 신뢰 배지 — 앱이 이 곡을 얼마나 확신하는지 정직히(초록=검증은 정답 없이 못 줌).
 let trustDetail = '';
 function paintTrust() {
-  const t = songTrust(map);
+  const t = songTrust(videoSession?.usesMusicMap ? videoSession.basisMap : map);
   const b = $('trustBadge');
   b.className = t.level;
   b.textContent = t.label;
@@ -365,7 +444,7 @@ function paintSub() {
 }
 
 function paintDrift() {
-  const w = map.analysis.warnings;
+  const w = (videoSession?.usesMusicMap ? videoSession.basisMap : map).analysis.warnings;
   let txt = '';
   if (w.includes('no_downbeat')) {
     txt = '이 곡은 1을 자동으로 못 찾았어요. 1이라고 들리는 순간에 위 버튼을 눌러 주세요.';
@@ -402,8 +481,8 @@ function drawTimeline() {
   const wrap = $('timelineWrap');
   const width = wrap.clientWidth - 24;
   if (width <= 0) return; // 숨겨진 탭 — 보일 때 다시 그린다
-  // 줄 높이: 남는 높이를 프레이즈 수로 나누되 22px 아래로는 안 줄인다(넘치면 스크롤)
-  const rowH = Math.max(22, Math.floor((wrap.clientHeight - 8) / rows.length));
+  // 줄 높이: 남는 높이를 프레이즈 수로 나누되 64px 아래로는 안 줄인다(넘치면 스크롤, 재생 줄을 따라감) — 10/26 사용자 "너무 작다"
+  const rowH = Math.max(64, Math.floor((wrap.clientHeight - 8) / rows.length));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = width * dpr;
   canvas.height = rowH * rows.length * dpr;
@@ -430,10 +509,10 @@ function drawTimeline() {
         const x = ((c.time - row.t0) / span) * width;
         if (c.count === 1) { // 에이트 시작 = 굵은 눈금
           g.fillStyle = '#c9cdd6';
-          g.fillRect(x, y0 + 2, 2, rowH - 4);
+          g.fillRect(x - 1, y0 + 2, 3, rowH - 4);
         } else if (countMode === 2) { // 카운트·선
-          g.fillStyle = '#5a5e68';
-          g.fillRect(x, y0 + rowH * 0.25, 1, rowH * 0.5);
+          g.fillStyle = '#7a7f8c';
+          g.fillRect(x, y0 + rowH * 0.25, 2, rowH * 0.5);
         }
       }
     }
@@ -573,6 +652,7 @@ function paintNow() {
 
 // ── 클릭 스케줄러 (25ms 룩어헤드 · 시킹마다 resync) ────────────────
 function resync() {
+  if (videoSession) videoSession.resetGain();
   if (!lay) return;
   const t = au.currentTime;
   let lo = 0;
@@ -647,10 +727,12 @@ setInterval(() => {
     { lagClickMs: lag.click, accent: map.accent, volume: prefs.cueVol / 100 });
 }, 25);
 
-au.addEventListener('seeked', () => { resync(); if (loopOn) updateLoop(); }); // 옮겨 간 자리 기준으로 반복 구간을 다시 잡는다
-au.addEventListener('play', () => { $('btnPlay').textContent = '⏸'; resync(); if (loopOn) updateLoop(); });
-au.addEventListener('pause', () => { $('btnPlay').textContent = '▶'; engine.cancelPending(); });
-au.addEventListener('ended', () => {
+function bindPlayback(el) {
+  const on = (event, fn) => el.addEventListener(event, e => { if (au === el) fn(e); });
+on('seeked', () => { if (!videoSession) resync(); if (loopOn) updateLoop(); }); // 옮겨 간 자리 기준으로 반복 구간을 다시 잡는다
+on('play', () => { $('btnPlay').textContent = '⏸'; if (!videoSession) resync(); if (loopOn) updateLoop(); });
+on('pause', () => { $('btnPlay').textContent = '▶'; engine.cancelPending(); });
+on('ended', () => {
   if (truthTaps) { finishTruthRecording(); return; } // 정답 기록 중 곡이 끝나면 그대로 저장
   if (learning) return; // 학습 화면이 곡 끝을 스스로 처리한다
   if (loopOn && loopCur && loopCur.end >= map.song.duration - 0.05) { // 곡 끝을 포함하는 반복
@@ -660,7 +742,7 @@ au.addEventListener('ended', () => {
   }
   if (queueIdx >= 0 && queueIdx + 1 < queue.length) playQueued(queueIdx + 1); // 연속 재생: 다음 곡
 });
-au.addEventListener('playing', () => {
+on('playing', () => {
   setTimeout(() => { // 브라우저가 아는 출력 지연을 화면 보정 시작값으로 (사람 값 우선)
     const L = audioCtx?.outputLatency;
     if (!paintLag.touched && typeof L === 'number' && L > 0.02 && L < 0.5) {
@@ -669,11 +751,15 @@ au.addEventListener('playing', () => {
     }
   }, 400);
 });
+  on('timeupdate', () => { if (truthTaps) $('truthTime').textContent = au.currentTime.toFixed(1); });
+}
+bindPlayback(au);
 
 // ── 버튼들 ────────────────────────────────────────────────────────
 $('btnOpen').onclick = () => $('fileInput').click();
 $('btnAddFiles').onclick = () => $('fileInput').click();
 $('fileInput').onchange = e => {
+  if ([...e.target.files].some(isVideoFile)) { ensureCtx(); primeVideo(); }
   if (e.target.files.length) openFiles([...e.target.files]);
   e.target.value = ''; // 같은 파일을 다시 골라도 change가 나게
 };
@@ -683,6 +769,7 @@ function startPlayback() {
 }
 function play() {
   ensureCtx();
+  if (videoSession) { startPlayback(); return; }
   if (countInTimer) return; // 카운트인 진행 중 — 재생 예약이 이미 있다
   if (clickOn && lay?.counts.length) {
     // 카운트인 5·6·7·8 뒤에 오는 것은 1이어야 한다: 멈춘 자리에서 가장 가까운 다음 1로
@@ -707,6 +794,7 @@ $('btnPlay').onclick = () => {
     engine.cancelPending();
     return;
   }
+  if (videoSession?.recoverTap()) return;
   if (!au.paused) au.pause(); else play();
 };
 
@@ -847,6 +935,7 @@ function openInfoSheet() {
 // 기록 중엔 카운트·카운트음을 숨긴다(앱의 1이 탭을 유도하면 정답이 아니다). 탭 시각은 au.currentTime(재생 시계).
 let truthTaps = null, truthClickWas = false;
 function startTruthRecording() {
+  if (videoSession?.usesMusicMap) { toast('1 기록은 동영상 박 기준으로 바꾼 뒤 해 주세요'); return; }
   if (!needSong()) return;
   ensureCtx();
   // 탭은 '들리는 시각'(heardTime = currentTime − 화면지연×배속)으로 기록한다. 지연 보정을 한 번도 안 했으면
@@ -872,7 +961,6 @@ function finishTruthRecording() {
   const v = truthVerdict(countAtTaps(next));
   applyMap(next, v.ok ? v.text : `1을 ${taps.length}번 찍어 저장했어요 — ${v.text}`);
 }
-au.addEventListener('timeupdate', () => { if (truthTaps) $('truthTime').textContent = au.currentTime.toFixed(1); });
 $('btnTruthRec').onclick = startTruthRecording;
 $('truthDone').onclick = finishTruthRecording;
 $('truthPad').addEventListener('pointerdown', () => {
@@ -1038,6 +1126,7 @@ function switchTab(name) {
     el.classList.toggle('on', el.dataset.tab === name);
   }
   for (const id of PLAY_IDS) $(id).hidden = name !== 'play';
+  if (videoSession) $('videoPanel').hidden = name !== 'play';
   $('hud').hidden = name !== 'play' || countMode === 0;
   $('learnView').hidden = name !== 'learn';
   $('listView').hidden = name !== 'list';
@@ -1062,14 +1151,14 @@ async function renderList() {
   }
   for (const m of maps) {
     const key = songKey(m.song);
-    const has = stored.has(key);
+    const has = isVideoSong(m) ? sessionVideos.has(key) : stored.has(key);
     const row = document.createElement('div');
     row.className = 'songRow' + (has ? '' : ' busy');
     const bpm = tempoBpm(m);
     // 파일이 기기에 없으면(저장 실패·브라우저가 지움) 흐리게가 아니라 이유를 적는다
     row.innerHTML = has
       ? `<div class="chk"></div><div class="nm"></div><div class="mt num r">${bpm ?? '–'}</div><div class="mt num r">${fmtTime(m.song.duration)}</div>`
-      : `<div class="chk" style="opacity:.4"></div><div class="nm"></div><div class="busyTag">파일 다시 선택</div><div class="mt num r">${fmtTime(m.song.duration)}</div>`;
+      : `<div class="chk" style="opacity:.4"></div><div class="nm"></div><div class="busyTag">${isVideoSong(m) ? '영상은 다시 넣어야 해요' : '파일 다시 선택'}</div><div class="mt num r">${fmtTime(m.song.duration)}</div>`;
     row.querySelector('.nm').textContent = baseName(m.song.name);
     const chk = row.querySelector('.chk');
     const paintChk = () => { chk.classList.toggle('on', selected.has(key)); chk.textContent = selected.has(key) ? '✓' : ''; };
@@ -1077,11 +1166,12 @@ async function renderList() {
     chk.onclick = e => { e.stopPropagation(); if (selected.has(key)) selected.delete(key); else selected.add(key); paintChk(); paintListActions(); };
     row.onclick = async () => {
       ensureCtx(); // 사용자 탭 안에서 오디오 컨텍스트를 만든다(iOS 제스처 규칙)
+      if (isVideoSong(m)) primeVideo();
       if (!has) { toast('이 곡의 파일이 기기에 없어요 — 같은 파일을 다시 골라 주세요'); $('fileInput').click(); return; }
       if (!au.src) au.play().catch(() => {}); // 첫 재생은 사용자 탭 안에서 깨워 둔다(iOS 자동재생 규칙)
       queue = []; queueIdx = -1;
       const seq = ++openSeq;
-      const blob = await loadAudio(key);
+      const blob = await mediaBlob(m);
       if (seq !== openSeq || !blob) return;
       if ((await openStored(m, blob, seq)).ok) play();
     };
@@ -1104,8 +1194,9 @@ function paintListActions() {
 async function playQueued(i) {
   queueIdx = i;
   const m = queue[i];
+  if (isVideoSong(m)) primeVideo();
   const seq = ++openSeq;
-  const blob = await loadAudio(songKey(m.song));
+  const blob = await mediaBlob(m);
   if (seq !== openSeq) return;
   if (!blob) { toast(`「${baseName(m.song.name)}」 파일이 없어 건너뛰어요`); if (i + 1 < queue.length) playQueued(i + 1); return; }
   const r = await openStored(m, blob, seq);
@@ -1117,9 +1208,10 @@ async function playQueued(i) {
 async function startQueue(maps) {
   if (!maps.length) { toast('재생할 곡이 없어요'); return; }
   ensureCtx();
+  if (maps.some(isVideoSong)) primeVideo();
   if (!au.src) au.play().catch(() => {});
   const stored = new Set(await listAudioKeys());
-  queue = maps.filter(m => stored.has(songKey(m.song)));
+  queue = maps.filter(m => isVideoSong(m) ? sessionVideos.has(songKey(m.song)) : stored.has(songKey(m.song)));
   if (!queue.length) { toast('저장된 곡 파일이 없어요 — 「파일 추가」로 다시 넣어 주세요'); return; }
   if (loopOn) setLoop(false);
   playQueued(0);
@@ -1190,7 +1282,7 @@ for (const el of document.querySelectorAll('#learnView [data-level]')) {
 // 앱이 1을 못 찾은 곡(🔴 근거 부족)으로 채점 연습을 하면 앱의 오답을 자기 실력으로 받아들인다(astra·sol 9/12).
 // 사람이 확인한 곡이 아니면 화면 제목에 '앱 기준'을 붙여 판정의 출처를 밝힌다.
 function practiceGuard() {
-  const t = songTrust(map);
+  const t = songTrust(videoSession?.usesMusicMap ? videoSession.basisMap : map);
   if (t.level === 'none') {
     toast('이 곡은 앱이 1을 확실히 못 찾았어요 — 다른 곡으로 연습하거나, 곡 정보에서 박자를 아는 사람과 맞춰 주세요');
     return null;
@@ -1294,6 +1386,7 @@ function showResult(listening, st) {
 // ── 저장된 곡 즉시 열기 + 마지막 곡 자동 복원 ────────────────────
 // seq = 이 열기 요청의 번호. 디코딩하는 사이 더 새 요청이 생겼으면 화면을 바꾸지 않는다.
 async function openStored(stored, blob, seq = ++openSeq) {
+  videoSession?.cancelAlignment();
   const progress = t => { if (seq === openSeq) $('progress').textContent = t; };
   try {
     progress('이어서 여는 중…');
@@ -1317,12 +1410,13 @@ async function restoreLastSong() {
   try { key = localStorage.getItem(LAST_SONG); } catch { return; }
   if (!key) return;
   const m = listSongMaps().find(x => songKey(x.song) === key);
-  if (!m) return;
+  if (!m || isVideoSong(m)) return;
   const seq = ++openSeq;
   const blob = await loadAudio(key);
   if (!blob || seq !== openSeq) return; // 그새 사용자가 다른 곡을 골랐다
   const r = await openStored(m, blob, seq);
   if (r.ok && !r.refreshed && !r.failed) toast('이어서: ' + baseName(m.song.name)); // 재분석·실패 안내를 덮지 않는다(codex 4·5차)
 }
+window.addEventListener('pagehide', e => { if (!e.persisted && videoSession) videoSession.dispose(); });
 requestPersistence();
 restoreLastSong();

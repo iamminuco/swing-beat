@@ -6,9 +6,8 @@
 export const MODEL_SR = 22050;
 
 export async function decodeToModelRate(file) {
-  const arrayBuf = await file.arrayBuffer();
   const probe = new OfflineAudioContext(1, 1, MODEL_SR);
-  const decoded = await probe.decodeAudioData(arrayBuf.slice(0));
+  const decoded = await probe.decodeAudioData(await file.arrayBuffer());
   const frames = Math.ceil(decoded.duration * MODEL_SR);
   const off = new OfflineAudioContext(1, frames, MODEL_SR);
   const src = off.createBufferSource();
