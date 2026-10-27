@@ -13,7 +13,7 @@ import { countAt, GRID_ENGINE } from '../core/analysis/analyze.js';
 import { createSongMap, songKey } from '../core/songmap/schema.js';
 import { structureHintFor } from '../core/songmap/hints.js';
 import {
-  layout, withOneShift, withOneFiveSwap, withOneAt, withSectionOne, withoutSectionOne,
+  layout, effectiveGrid, withOneShift, withOneFiveSwap, withOneAt, withSectionOne, withoutSectionOne,
   withPhraseLen, withManualTempo, withMarker, withoutMarker, tempoBpm, songTrust,
   refreshAnalysis, withTruth, withoutTruth, applyTruth, countAtTaps, truthVerdict, restoreKeepingTruth, applyStructureHint,
 } from '../core/songmap/songmap.js';
@@ -375,8 +375,22 @@ function applyMap(next, msg) {
   if (msg) toast(msg);
 }
 
+// 영상은 앞부분이 잘려 1 앞에서 시작하기도 한다(10/27 사용자 "5카운트부터 시작") — 영상일 때는
+// 1 앞의 박도 거꾸로 이어 센다(… 5·6·7·8 → 1). 이 박들은 프레이즈 0(시작 전)이다.
+function withPickupCounts(base) {
+  const { beats, barPhase: { offset } } = effectiveGrid(map);
+  if (!offset || !base.counts.length || base.counts[0].beat !== offset) return base;
+  const pick = [];
+  for (let i = 0; i < offset; i++) {
+    pick.push({ beat: i, time: beats[i], end: beats[i + 1], count: ((i - offset) % 8 + 8) % 8 + 1, eight: 0, phrase: 0 });
+  }
+  return { ...base, counts: [...pick, ...base.counts] };
+}
+
 function rebuild() {
-  lay = videoSession ? videoSession.layout(layout(map)) : layout(map);
+  lay = videoSession ? videoSession.layout(withPickupCounts(layout(map))) : layout(map);
+  const sc = globalThis.document?.getElementById('startCount');
+  if (sc && lay.counts.length) sc.value = String(lay.counts[0].count);
   buildRows();
   drawTimeline();
   paintSub();
@@ -487,7 +501,7 @@ function drawTimeline() {
     g.strokeRect(0, y0 + 0.5, width, rowH - 1);
     // 줄 이름: 몇 번째 프레이즈인지, 각 8카운트 칸이 몇 번째인지(10/27 사용자 "용어를 잘 모르겠다")
     g.font = '600 11px system-ui'; g.textBaseline = 'top'; g.textAlign = 'left';
-    const label = row.phrase == null ? '시작 전' : '프레이즈 ' + row.phrase;
+    const label = !row.phrase ? '시작 전' : '프레이즈 ' + row.phrase;
     g.fillStyle = 'rgba(22,24,29,.8)'; g.fillRect(3, y0 + 3, g.measureText(label).width + 8, 15);
     g.fillStyle = '#f2f1ec'; g.fillText(label, 7, y0 + 5);
     if (countMode > 0 && row.marks) {
@@ -581,8 +595,8 @@ function paintNow() {
       paintCells(item);
       const phrases = lay.totals.fullPhrases + (lay.totals.endingCounts ? 1 : 0);
       const eightIn = ((item.eight - 1) % map.phraseLen) + 1;
-      $('progressLine').innerHTML =
-        `프레이즈 <b>${item.phrase}</b> / ${phrases} &nbsp;·&nbsp; 8카운트 <b>${eightIn}</b> / ${map.phraseLen}`;
+      $('progressLine').innerHTML = item.phrase === 0 ? '시작 전 · 다음 1부터 프레이즈 1'
+        : `프레이즈 <b>${item.phrase}</b> / ${phrases} &nbsp;·&nbsp; 8카운트 <b>${eightIn}</b> / ${map.phraseLen}`;
     } else {
       big.textContent = '–';
       big.classList.add('idle');
@@ -981,6 +995,14 @@ $('fxHereHud').onclick = fixOneHere; // 재생 화면 카운트 아래 상시 �
 $('fxBackHud').onclick = () => applyMap(withOneShift(map, -1), '1을 한 박자 앞으로');
 $('fxFwdHud').onclick = () => applyMap(withOneShift(map, 1), '1을 한 박자 뒤로');
 $('fxUndoHud').onclick = undoLast;
+// 영상 첫 박 카운트(10/27 사용자 "영상 앞부분이 잘려서 5카운트부터 시작"): 첫 박을 N으로 고르면
+// 그 박에서 (9−N)박 뒤를 곡 전체의 1로 옮긴다 — 「여기가 1」과 같은 보정이라 저장·되돌리기도 같다.
+$('startCount').onchange = () => {
+  const n = +$('startCount').value, c = lay?.counts ?? [];
+  const k = (9 - n) % 8;
+  if (k >= c.length) return;
+  applyMap(withOneAt(map, c[k].time), `첫 박을 ${n}카운트로 맞췄어요`);
+};
 $('fxUndo').onclick = undoLast;
 $('trustBadge').onclick = () => { if (trustDetail) toast(trustDetail); };
 $('fxGlobalHere').onclick = () => applyMap(withOneAt(map, au.currentTime), '곡 전체의 1을 여기로 옮겼어요');

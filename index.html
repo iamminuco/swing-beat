@@ -251,10 +251,15 @@
   body.withVideo #hud { order:1; padding:2px 12px 2px; }
   body.withVideo #videoPanel:not([hidden]) { order:2; flex:1 1 auto; min-height:0; max-height:none; overflow:hidden;
                                             display:flex; flex-direction:column; padding:4px 0 0; }
-  body.withVideo #video { flex:1 1 auto; min-height:0; height:auto; }
+  /* 영상은 틀(videoBox)에 꽉 맞춰 줄인다 — 아이폰 사파리에서 영상 자체를 늘어나는 칸에 두면 높이를 못 줄여 아래가 잘렸다(10/27) */
+  body.withVideo #videoBox { flex:1 1 auto; min-height:0; position:relative; background:#000; }
+  body.withVideo #videoBox #video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
   body.withVideo #videoSoundRow { flex:none; display:flex; align-items:center; gap:6px; }
   body.withVideo #videoSoundRow button { flex:none; }
-  body.withVideo #videoSoundRow, body.withVideo #videoStatus,
+  #startCountRow { display:flex; align-items:center; gap:8px; font-size:12px; }
+  #startCountRow span { color:var(--t3); font-size:11px; }
+  #startCount { font:inherit; font-size:15px; font-weight:700; background:var(--card); color:var(--t0); border:1px solid var(--yellow); border-radius:8px; padding:2px 6px; }
+  body.withVideo #startCountRow, body.withVideo #videoSoundRow, body.withVideo #videoStatus,
   body.withVideo #videoAdjust { margin-left:12px; margin-right:12px; }
   body.withVideo #videoStatus { margin-top:0; margin-bottom:0; font-size:11px; }
   body.withVideo #tlHead { order:3; padding:4px 16px 2px; }
@@ -319,7 +324,8 @@
 </div>
 
 <section id="videoPanel" hidden aria-label="동영상과 음악">
-  <video id="video" playsinline preload="metadata" hidden></video>
+  <div id="videoBox"><video id="video" playsinline preload="metadata" hidden></video></div>
+  <div id="startCountRow"><label>영상 첫 박 카운트 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label><span>앞부분이 잘려 1이 아닌 데서 시작하면 바꿔요</span></div>
   <div id="videoSoundRow"><label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
   <button id="chooseMusic">음악 파일 선택·바꾸기</button></div>
   <input id="musicInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden>
@@ -531,6 +537,6 @@
   };
 })();
 </script>
-<script type="module" src="./ui/player.js?v=20261027-2"></script>
+<script type="module" src="./ui/player.js?v=20261027-3"></script>
 </body>
 </html>
