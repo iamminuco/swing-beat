@@ -37,6 +37,20 @@ const LAST_SONG = 'beatapp_last_song';
 const PREFS = 'beatapp_prefs_v1'; // 컨트롤 펼침 · 강세 방식
 
 const $ = id => document.getElementById(id);
+// 끊김 진단(?debug 주소일 때만): 영상 멈춤·소리엔진 상태를 화면 아래에 시각과 함께 띄운다
+const dbg = /[?&]debug/.test(location.search) ? (() => {
+  const box = document.createElement('pre');
+  box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:30vh;overflow:auto;margin:0;padding:4px 8px;font-size:11px;background:#000c;color:#0f0;z-index:99;pointer-events:none';
+  document.body.appendChild(box);
+  const t0 = performance.now();
+  return msg => { box.textContent = `${((performance.now() - t0) / 1000).toFixed(2)}s ${msg}\n` + box.textContent.slice(0, 3000); };
+})() : null;
+if (dbg) {
+  const v = document.getElementById('video');
+  for (const ev of ['play', 'playing', 'waiting', 'stalled', 'seeking', 'seeked', 'pause', 'ratechange'])
+    v.addEventListener(ev, () => dbg(`영상 ${ev} @${v.currentTime.toFixed(2)}`));
+  dbg('소리 세션 ' + (navigator.audioSession ? navigator.audioSession.type : '없음'));
+}
 let au = $('au');
 let videoSession = null;
 // 영상 확대(10/27 사용자 "동영상 인물 확대도"): 두 손가락 벌리기·두 번 탭·확대 상태에서 끌기
@@ -90,7 +104,14 @@ function savePrefs() {
 
 let audioCtx = null;
 function ensureCtx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audioCtx) {
+    // 아이폰(10/27 사용자 "영상 시작할 때와 중간에 소리·화면 둘 다 끊김"): 사파리는 카운트음(WebAudio)과
+    // 영상 소리를 서로 다른 소리 종류로 다뤄, 카운트음이 켜지는 순간 소리 경로를 바꾸며 영상까지 멈칫한다.
+    // 둘 다 '재생' 종류로 고정해 전환을 없앤다(사파리 16.4+ 소리 세션 API, 없는 브라우저는 그대로).
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (dbg) audioCtx.onstatechange = () => dbg('소리엔진 ' + audioCtx.state);
+  }
   if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
   return audioCtx;
 }
