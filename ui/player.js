@@ -270,7 +270,8 @@ function mountSong(m, pcm, blob, temporary = false) {
   objectUrl = URL.createObjectURL(blob);
   au.src = objectUrl;
   }
-  if (!temporary) {
+  // 영상은 파일을 기기에 저장하지 않아 다음에 못 연다 — 마지막 곡 기록은 음악 곡만 남긴다(10/27 사용자 "곡이 없는데")
+  if (!temporary && !videoSession) {
     try { localStorage.setItem(LAST_SONG, songKey(m.song)); } catch { /* private */ }
   }
   $('songTitle').textContent = baseName(m.song.name);
@@ -1371,9 +1372,15 @@ async function openStored(stored, blob, seq = ++openSeq) {
 async function restoreLastSong() {
   let key = null;
   try { key = localStorage.getItem(LAST_SONG); } catch { return; }
-  if (!key) return;
-  const m = listSongMaps().find(x => songKey(x.song) === key);
-  if (!m || isVideoSong(m)) return;
+  const maps = listSongMaps();
+  let m = key ? maps.find(x => songKey(x.song) === key) : null;
+  if (!m || isVideoSong(m)) { // 마지막이 영상이었으면(10/27 이전 기록) 기기에 저장된 음악 곡으로 연다
+    let stored;
+    try { stored = new Set(await listAudioKeys()); } catch { return; }
+    m = maps.find(x => !isVideoSong(x) && stored.has(songKey(x.song)));
+    if (!m) return;
+  }
+  key = songKey(m.song);
   const seq = ++openSeq;
   const blob = await loadAudio(key);
   if (!blob || seq !== openSeq) return; // 그새 사용자가 다른 곡을 골랐다
