@@ -18,7 +18,7 @@ import {
   refreshAnalysis, withTruth, withoutTruth, applyTruth, countAtTaps, truthVerdict, restoreKeepingTruth, applyStructureHint,
 } from '../core/songmap/songmap.js';
 import { prevMarker, nextMarker, loopRange, markerNear } from '../core/songmap/navigate.js';
-import { saveSongMap, loadSongMap, listSongMaps } from '../storage/songstore.js';
+import { saveSongMap, loadSongMap, listSongMaps, removeSongMap } from '../storage/songstore.js';
 import { decodeToModelRate, MODEL_SR } from '../audio/decode.js';
 import { createClickEngine } from '../audio/click.js';
 import { isVideoFile, checkVideoSize } from '../core/video-sync.js';
@@ -27,7 +27,7 @@ import { startGame } from './game.js';
 import { startBounce } from './bounce.js';
 import { startListening } from './listen.js';
 import { startCalibration } from './calibrate.js';
-import { saveAudio, loadAudio, listAudioKeys, requestPersistence } from '../storage/audiostore.js';
+import { saveAudio, loadAudio, listAudioKeys, deleteAudio, requestPersistence } from '../storage/audiostore.js';
 import { makeListeningQuiz, demoPair } from '../core/learn/listening.js';
 import { fullWindows, pickWindow } from '../core/learn/windows.js';
 import { lastResults, recordResult, describeTiming, suggestDefaults } from '../core/learn/results.js';
@@ -1158,6 +1158,7 @@ async function renderList() {
       if (seq !== openSeq || !blob) return;
       if ((await openStored(m, blob, seq)).ok) play();
     };
+    attachDelete(row, m, key);
     box.appendChild(row);
   }
   for (const name of analyzing) {
@@ -1169,6 +1170,53 @@ async function renderList() {
   }
   paintListActions();
 }
+// 곡 지우기: 왼쪽으로 밀거나 꾹 누르면 오른쪽에 「삭제」가 나온다(10/27 사용자 "삭제가 안 되네").
+// 민 직후·꾹 누른 직후의 탭은 곡 열기로 새지 않게 막고, 열린 줄의 다른 곳을 누르면 닫는다.
+function attachDelete(row, m, key) {
+  const del = document.createElement('button');
+  del.className = 'rowDel';
+  del.textContent = '삭제';
+  row.appendChild(del);
+  let x0 = null, y0 = 0, timer = 0, swallow = false;
+  const setOpen = on => row.classList.toggle('delOpen', on);
+  row.addEventListener('pointerdown', e => {
+    if (e.target === del) return;
+    x0 = e.clientX; y0 = e.clientY; swallow = false;
+    timer = setTimeout(() => { setOpen(true); swallow = true; navigator.vibrate?.(15); }, 550);
+  });
+  row.addEventListener('pointermove', e => {
+    if (x0 == null) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearTimeout(timer);
+    if (Math.abs(dy) > 30) { x0 = null; return; } // 세로 스크롤
+    if (dx < -40) { setOpen(true); swallow = true; } else if (dx > 40) { setOpen(false); swallow = true; }
+  });
+  const end = () => { clearTimeout(timer); x0 = null; };
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) row.addEventListener(ev, end);
+  row.addEventListener('contextmenu', e => e.preventDefault());
+  row.addEventListener('click', e => {
+    if (e.target === del) return;
+    if (swallow || row.classList.contains('delOpen')) {
+      e.stopImmediatePropagation(); e.preventDefault();
+      if (!swallow) setOpen(false);
+      swallow = false;
+    }
+  }, true);
+  del.onclick = async e => {
+    e.stopPropagation();
+    removeSongMap(m.song);
+    await deleteAudio(key);
+    try {
+      localStorage.removeItem('beatapp_media:' + key);
+      if (localStorage.getItem(LAST_SONG) === key) localStorage.removeItem(LAST_SONG);
+    } catch { /* private mode */ }
+    sessionVideos.delete(key);
+    selected.delete(key);
+    toast(`「${baseName(m.song.name)}」 지웠어요`);
+    renderList();
+  };
+}
+
 function paintListActions() {
   const n = selected.size;
   $('btnPlaySel').textContent = n ? `선택 ${n}곡 재생` : '선택 재생';
