@@ -8,10 +8,8 @@
 // (곡 정보·박자 보정 / 속도 / 설정 / 표시 이름) · 오버레이(게임·청음·두드려 재기·결과).
 // 학습 오버레이가 떠 있는 동안(learning) 플레이어의 반복·강세·카운트음·연속재생은
 // 모두 멈춘다 — 학습 소리에 플레이어 보조음이 섞이거나 곡이 바뀌면 안 된다(codex 9/8 #2·#3·#12).
-import { prepareFilterbank, logMelSpect } from '../core/analysis/logmel.js';
-import { chunkStarts, extractChunk, aggregate, CHUNK_SIZE, MIN_FRAMES } from '../core/analysis/chunking.js';
-import { pickBeats } from '../core/analysis/postprocess.js';
-import { analyze, countAt, GRID_ENGINE } from '../core/analysis/analyze.js';
+import { prepareAnalysis, analyseGrid } from '../core/analysis/client.js';
+import { countAt, GRID_ENGINE } from '../core/analysis/analyze.js';
 import { createSongMap, songKey } from '../core/songmap/schema.js';
 import { structureHintFor } from '../core/songmap/hints.js';
 import {
@@ -60,7 +58,6 @@ function mediaBlob(m) {
 }
 
 let map = null, lay = null, samples = null, rows = [];
-let session = null, filterbank = null;
 let clickOn = false, countMode = 1, loopOn = false;
 let clickState = { nextIdx: 0 };
 let lag = { screen: 0, click: 0 };
@@ -145,43 +142,8 @@ const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStar
 const baseName = n => n.replace(/\.[^.]+$/, '');
 
 // ── 분석 ──────────────────────────────────────────────────────────
-async function ensureModel(progress) {
-  if (!filterbank) {
-    const buf = await (await fetch('./assets/mel_filterbank_513x128.bin')).arrayBuffer();
-    filterbank = prepareFilterbank(new Float32Array(buf));
-  }
-  if (!session) {
-    progress('박자 찾는 도구 받는 중 (9.9MB · 처음 한 번)…');
-    session = await ort.InferenceSession.create('./assets/beat_this_small0.onnx',
-      { executionProviders: ['wasm'] });
-  }
-}
-
-async function analyseSamples(pcm, progress) {
-  progress('노래를 살펴보는 중…');
-  await new Promise(r => setTimeout(r));
-  const { frames, data } = logMelSpect(pcm, filterbank);
-  if (frames < MIN_FRAMES) throw new Error('30초보다 짧은 곡은 아직 분석할 수 없어요');
-  const starts = chunkStarts(frames);
-  const beatChunks = [], downChunks = [];
-  for (let i = 0; i < starts.length; i++) {
-    progress(`박자 찾는 중 ${i + 1}/${starts.length}…`);
-    await new Promise(r => setTimeout(r));
-    const out = await session.run({
-      spect: new ort.Tensor('float32', extractChunk(data, frames, starts[i]), [1, CHUNK_SIZE, 128]),
-    });
-    beatChunks.push(out.beat_logits.data);
-    downChunks.push(out.downbeat_logits.data);
-  }
-  const picked = pickBeats(
-    aggregate(beatChunks, starts, frames), aggregate(downChunks, starts, frames));
-  // 마지막 스펙트럼 프레임은 시각이 정확히 duration과 같을 수 있다(가장자리
-  // 인공물). 그리드 계약은 duration 미만만 받으므로 여기서 걸러낸다.
-  const duration = pcm.length / MODEL_SR;
-  const beats = picked.beats.filter(t => t < duration);
-  const kept = new Set(beats);
-  return { sr: MODEL_SR, duration, beats, downbeats: picked.downbeats.filter(t => kept.has(t)) };
-}
+const ensureModel = prepareAnalysis;
+const analyseSamples = analyseGrid;
 
 // 저장된 곡의 격자 엔진(analysis.engine)이 지금 앱보다 옛것이면 같은 PCM으로 다시 분석해 저장한다.
 // 사용자의 직접 맞춘 1·구간 1·마커·설정은 그대로(refreshAnalysis). codex 2026-09-11 지적: 저장곡은 분석을
@@ -203,7 +165,7 @@ async function refreshIfStale(m, pcm, progress, isCurrent = () => true) {
   try {
     await ensureModel(progress);
     progress('박자 찾는 방법이 새로워져 다시 분석하는 중…');
-    grid = analyze(pcm, MODEL_SR, await analyseSamples(pcm, progress));
+    grid = await analyseSamples(pcm, progress);
   } catch (err) {
     // 재분석이 실패해도 옛 격자로는 열 수 있어야 한다(codex 4차 P1: 모델 로드 실패가 저장곡 열기를 막았다)
     if (isCurrent()) toast('박자 재분석에 실패해 예전 분석으로 열어요: ' + (err?.message || err)); // 취소된 요청은 새 곡 안내를 덮지 않는다
@@ -238,7 +200,7 @@ async function analyzeAndSave(file, progress, isCurrent = () => true) {
     const fresh = !m;
     if (!m) {
       await ensureModel(progress);
-      const grid = analyze(pcm, MODEL_SR, await analyseSamples(pcm, progress));
+      const grid = await analyseSamples(pcm, progress);
       m = applyStructureHint(createSongMap(song, grid), structureHintFor(song));
     }
     toast('영상 화면을 못 읽어 소리만 열었어요');
@@ -247,8 +209,7 @@ async function analyzeAndSave(file, progress, isCurrent = () => true) {
   let fresh = false, refreshed = false, failed = false;
   if (!m) {
     await ensureModel(progress);
-    const model = await analyseSamples(pcm, progress);
-    const grid = analyze(pcm, MODEL_SR, model);
+    const grid = await analyseSamples(pcm, progress);
     // 같은 곡을 동시에 두 번 분석하면(목록 일괄+열기) 늦게 끝난 쪽이 먼저 저장된 지도와 그새 찍은 마커를
     // 덮어쓴다(codex 4차 P1). 저장 직전에 다시 확인: 이미 있으면 그걸 쓰고, 옛 엔진이면 그 위에 입힌다.
     const latest = loadSongMap(song);
@@ -294,7 +255,7 @@ function mountSong(m, pcm, blob, temporary = false) {
       analyzeMusic: async (file, progress) => {
         const { samples: musicPcm, duration } = await decodeToModelRate(file);
         await ensureModel(progress);
-        const grid = analyze(musicPcm, MODEL_SR, await analyseSamples(musicPcm, progress));
+        const grid = await analyseSamples(musicPcm, progress);
         return { pcm: musicPcm, m: createSongMap({ name: file.name, size: file.size, duration }, grid) };
       },
       onChange: () => { rebuild(); resync(); if (loopOn) updateLoop(); },
@@ -361,7 +322,7 @@ async function openFiles(files) {
   for (let i = 0; i < rest.length; i++) {
     const label = `${i + 1}/${rest.length}곡 「${baseName(rest[i].name)}」 `;
     try {
-      const r = await analyzeAndSave(rest[i], t => toast(label + t));
+      const r = await analyzeAndSave(rest[i], (t, tick) => { if (!tick) toast(label + t); }); // heartbeat ticks must not overwrite other toasts
       prepared += 1;
       if (r.failed) stale += 1; // 재분석에 실패해 예전 분석으로 남은 곡(codex 6차: 완료 토스트가 실패 안내를 덮었다)
     } catch (err) {
