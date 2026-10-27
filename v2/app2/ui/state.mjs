@@ -50,12 +50,14 @@ export function uncertaintyText(state) {
   return segment?.reason ? '앱이 확신 못 함' : '';
 }
 export function saveText(state) {
-  if (state.rateTransient) return '저장 못 함 · 1.0배 초과 속도는 이번 재생에만 적용돼요';
   if (state.save === 'saving') return '저장 중…';
   if (state.save !== 'persisted') return state.save === 'conflict'
     ? '저장 못 함 · 다른 탭에서 바뀌었어요. 파일을 다시 열어 주세요'
     : '저장 못 함 · 저장소를 확인하고 파일을 다시 열어 주세요';
   return state.audioSaved === true ? '기기에 저장됨' : '저장 못 함 · 음원 파일 저장에 실패했어요';
+}
+export function rateText(state) {
+  return state.rateTransient ? state.rate + '배는 이번 재생에만 적용돼요' : '';
 }
 export function restartText(state) {
   return (state.view?.restarts ?? []).map(r =>

@@ -56,6 +56,7 @@ export function createUiController({ session, songs, engine, cues, resultStorage
     const r = store.get().request;
     let t, stage = 'decode';
     try {
+      engine.cancelAnalysis?.();
       const ready = gesture();
       // Attach rejection handling before decode can yield; both gesture calls above are synchronous.
       ready.catch(() => {});

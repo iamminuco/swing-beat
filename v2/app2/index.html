@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>스윙 박자 · v2</title><link rel="stylesheet" href="./ui/style.css"></head>
 <body><main>
-<label for="fileInput">곡 열기 · 오디오 파일</label><input id="fileInput" type="file" accept="audio/*">
+<label for="fileInput">곡 열기 · 오디오 파일</label><input id="fileInput" type="file" accept="audio/*" aria-describedby="startup" disabled>
+<p id="startup" role="status">곡 열기를 준비 중이에요. 계속 비활성 상태라면 연결을 확인하고 새로고침해 주세요. JavaScript를 켜야 사용할 수 있어요.</p>
 <div id="progress" role="status" aria-live="polite"></div><p id="error" role="alert"></p><p id="notice" role="status"></p>
 <h1 id="songTitle">곡을 골라 주세요</h1><p id="songSub">오디오 파일 · 30초 이상</p>
 <section id="songView" hidden>

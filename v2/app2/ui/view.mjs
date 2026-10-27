@@ -1,4 +1,4 @@
-import { currentCount, uncertaintyText, saveText, restartText } from './state.mjs';
+import { currentCount, uncertaintyText, saveText, rateText, restartText } from './state.mjs';
 
 export function timelineMarkup(s) {
   const cs = s.view?.counts ?? [];
@@ -24,7 +24,7 @@ export function mountUi(doc, controller) {
     $('songSub').textContent = ready ? time(s.position) + ' / ' + time(s.map.auto.duration) + ' · 음악 카운트' : '오디오 파일 · 30초 이상';
     $('songView').hidden = !ready;
     if (!ready) return;
-    $('saveStatus').textContent = saveText(s);
+    $('saveStatus').textContent = [saveText(s), rateText(s)].filter(Boolean).join(' · ');
     $('uncertainty').textContent = uncertaintyText(s);
     $('restartNotice').textContent = restartText(s);
     $('correctionNotice').textContent = s.view.applyFailed ? '내 보정을 적용하지 못한 위치가 있어요' :
@@ -68,6 +68,8 @@ export function mountUi(doc, controller) {
     }
   });
   $('fileInput').addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) controller.openFile(f); });
+  // The input ships disabled so a file picked on a slow network before the modules load is never silently lost.
+  $('fileInput').disabled = false;
   $('playBtn').addEventListener('click', controller.play);
   $('seek').addEventListener('input', e => controller.seek(Number(e.target.value)));
   $('rate').addEventListener('change', e => controller.setRate(Number(e.target.value)));
@@ -85,5 +87,7 @@ export function mountUi(doc, controller) {
   $('answerNo').addEventListener('click', () => controller.answer('no'));
   $('leavePracticeBtn').addEventListener('click', controller.leavePractice);
   $('timeline').addEventListener('click', e => { const b = e.target.closest('[data-time]'); if (b) controller.seek(Number(b.dataset.time)); });
+  $('startup').hidden = true;
+  $('fileInput').setAttribute('aria-describedby', '');
   return off;
 }
