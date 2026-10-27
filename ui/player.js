@@ -795,6 +795,16 @@ $('btnPlay').onclick = () => {
   if (!au.paused) au.pause(); else play();
 };
 
+// 처음으로(10/27 사용자 "처음으로 가기도 할 수 있게") — 재생 중이면 계속 재생, 반복 구간은 끈다
+$('btnToStart').onclick = () => {
+  if (countInTimer) { clearTimeout(countInTimer); countInTimer = null; engine.cancelPending(); }
+  if (loopOn) $('btnLoop').click();
+  au.currentTime = 0;
+  resync();
+  lastRow = -1;
+  $('timelineWrap').scrollTo({ top: 0 });
+};
+
 // 이전/다음 = 표시(깃발) 사이 이동. 그쪽에 표시가 없으면 프레이즈 단위로 간다.
 function jump(dir) {
   const m = dir < 0 ? prevMarker(map.markers, au.currentTime) : nextMarker(map.markers, au.currentTime);
