@@ -445,8 +445,10 @@ function drawTimeline() {
   const wrap = $('timelineWrap');
   const width = wrap.clientWidth - 24;
   if (width <= 0) return; // 숨겨진 탭 — 보일 때 다시 그린다
-  // 줄 높이: 남는 높이를 프레이즈 수로 나누되 64px 아래로는 안 줄인다(넘치면 스크롤, 재생 줄을 따라감) — 10/26 사용자 "너무 작다"
-  const rowH = Math.max(64, Math.floor((wrap.clientHeight - 8) / rows.length));
+  // 줄 높이: 남는 높이를 프레이즈 수로 나누되 최소 높이 아래로는 안 줄인다(넘치면 스크롤, 재생 줄을 따라감)
+  // — 10/26·10/27 사용자 "프레이즈 보이는 게 너무 작다". 영상과 같이 볼 때는 조금 낮춘다.
+  const minRow = videoSession ? 76 : 96;
+  const rowH = Math.max(minRow, Math.floor((wrap.clientHeight - 8) / rows.length));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = width * dpr;
   canvas.height = rowH * rows.length * dpr;
@@ -482,6 +484,21 @@ function drawTimeline() {
     }
     g.strokeStyle = '#2c313b';
     g.strokeRect(0, y0 + 0.5, width, rowH - 1);
+    // 줄 이름: 몇 번째 프레이즈인지, 각 8카운트 칸이 몇 번째인지(10/27 사용자 "용어를 잘 모르겠다")
+    g.font = '600 11px system-ui'; g.textBaseline = 'top'; g.textAlign = 'left';
+    const label = row.phrase == null ? '시작 전' : '프레이즈 ' + row.phrase;
+    g.fillStyle = 'rgba(22,24,29,.8)'; g.fillRect(3, y0 + 3, g.measureText(label).width + 8, 15);
+    g.fillStyle = '#f2f1ec'; g.fillText(label, 7, y0 + 5);
+    if (countMode > 0 && row.marks) {
+      g.font = '500 10px system-ui'; g.textBaseline = 'bottom';
+      let k = 0;
+      for (const c of row.marks) {
+        if (c.count !== 1) continue;
+        k++;
+        const x = ((c.time - row.t0) / span) * width;
+        g.fillStyle = '#9aa0ad'; g.fillText('8카운트 ' + k, x + 4, y0 + rowH - 3);
+      }
+    }
   });
   // 반복 구간 테두리 (시안: 줄 바깥 노란 윤곽)
   if (loopOn && loopCur) {
@@ -564,7 +581,7 @@ function paintNow() {
       const phrases = lay.totals.fullPhrases + (lay.totals.endingCounts ? 1 : 0);
       const eightIn = ((item.eight - 1) % map.phraseLen) + 1;
       $('progressLine').innerHTML =
-        `프레이즈 <b>${item.phrase}</b> / ${phrases} &nbsp;·&nbsp; 에이트 <b>${eightIn}</b> / ${map.phraseLen}`;
+        `프레이즈 <b>${item.phrase}</b> / ${phrases} &nbsp;·&nbsp; 8카운트 <b>${eightIn}</b> / ${map.phraseLen}`;
     } else {
       big.textContent = '–';
       big.classList.add('idle');

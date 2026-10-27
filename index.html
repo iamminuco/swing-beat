@@ -44,7 +44,7 @@
   #hud { text-align:center; padding:2px 16px 4px; }
   #progressLine { font-size:13px; color:var(--t2); min-height:18px; }
   #progressLine b { color:var(--t0); font-size:16px; font-weight:600; }
-  #bigCount { font-size:110px; font-weight:600; line-height:.9; color:#fff; transition:transform .08s, color .08s; }
+  #bigCount { font-size:64px; font-weight:600; line-height:.9; color:#fff; transition:transform .08s, color .08s; }
   #bigCount.idle { color:var(--t3); }
   #bigCount.accent { transform:scale(1.1); }
   #bigCount.one { color:var(--yellow); transform:scale(1.28); }
@@ -242,10 +242,15 @@
   /* 영상과 박자 줄을 같이 본다(10/27 사용자 "영상이랑 그 수술실 심박수같은거랑 같이 보고싶어"):
      조정 버튼은 접고, 큰 숫자는 줄이고, 박자 줄은 최소 높이를 지킨다 */
   body.withVideo #videoPanel { max-height:none; overflow:visible; }
-  body.withVideo #video { height:24dvh; }
-  body.withVideo #bigCount { font-size:48px; }
+  body.withVideo #video { height:20dvh; }
+  body.withVideo #videoPanel { padding:2px 12px; }
+  body.withVideo #videoStatus { margin:0; }
+  body.withVideo #fxHereHud { margin-top:4px; height:32px; }
+  body.withVideo #hud { padding-top:0; }
+  body.withVideo #bigCount { font-size:40px; }
+  body.withVideo #cells div { height:30px; font-size:17px; }
   body.withVideo #fxNudge, body.withVideo #fxUndoHud { display:none; }
-  body.withVideo #timelineWrap { flex:1 0 30dvh; min-height:30dvh; }
+  body.withVideo #timelineWrap { flex:1 1 25dvh; min-height:25dvh; }
   #videoAdjust summary { cursor:pointer; font-size:12px; color:var(--t2); padding:4px; }
   #videoPanel label { display:inline-block; font-size:12px; margin:4px; }
   #videoPanel select, #syncRatio { max-width:100%; background:var(--card); color:var(--t0); font:inherit; }
@@ -329,7 +334,7 @@
   <button id="fxUndoHud" disabled title="방금 누른 보정(여기가 1·한 박·1↔5·구간)을 한 단계 되돌려요">↶ 되돌리기</button>
 </div>
 
-<div id="tlHead" hidden><div>프레이즈<span id="loopLabel"></span></div><div id="tlTime" class="num"></div></div>
+<div id="tlHead" hidden><div>프레이즈 <span style="color:var(--t3)">· 한 줄 = 8카운트 4개</span><span id="loopLabel"></span></div><div id="tlTime" class="num"></div></div>
 <div id="timelineWrap" hidden>
   <div id="timeline">
     <canvas id="wave"></canvas>
