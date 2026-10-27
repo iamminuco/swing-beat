@@ -246,10 +246,12 @@ function mountSong(m, pcm, blob, temporary = false) {
   undoStack.length = 0; // 다른 곡의 보정을 이 곡에 되돌리지 않는다
   samples = pcm;
   if (videoSession) { videoSession.dispose(); videoSession = null; au = $('au'); }
+  globalThis.document?.body?.classList.remove('withVideo');
   if (isVideoFile({ name: m.song.name, type: blob.type }) && !audioOnlyBlobs.has(blob) && isVideoSong(m)) {
     au.pause(); au.removeAttribute('src'); au.load();
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = null;
+    globalThis.document?.body?.classList.add('withVideo');
     videoSession = createVideoSession({
       $, blob, pcm, videoMap: map, ensureCtx,
       analyzeMusic: async (file, progress) => {
