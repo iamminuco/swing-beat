@@ -319,12 +319,10 @@
 
 <div id="dropZone">
   <div style="font-size:26px; font-weight:800; color:#fff; line-height:1.35">곡만 넣으세요</div>
-  <div style="font-size:15px; color:var(--t1)">듣고, 세고, 준비하는 건 앱이 합니다</div>
   <button id="btnOpen">곡 넣기</button>
   <div id="progress"></div>
   <div style="font-size:12px; color:var(--t3); line-height:1.7; max-width:340px">
-    여러 곡을 한 번에 골라도 돼요 — 전부 미리 준비해 둘게요.<br>
-    「파일」 앱에 저장된 곡(mp3·wav 등)만 열 수 있어요. 음악 앱 곡은 저작권 잠금이에요.
+    음악 앱 곡은 안 열려요 — 「파일」 앱에 있는 곡을 넣어요.
   </div>
   <input type="file" id="fileInput" multiple
          accept="audio/*,video/*,.mp4,.mov,.webm,.mp3,.m4a,.wav,.aac,.ogg,.flac,audio/mpeg,audio/mp4,audio/wav" hidden>
@@ -332,19 +330,18 @@
 
 <section id="videoPanel" hidden aria-label="동영상과 음악">
   <div id="videoBox"><video id="video" playsinline preload="auto" hidden></video><button id="zoomReset" type="button" hidden>원래 크기</button></div>
-  <div id="startCountRow"><label>영상 첫 박 카운트 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label><span>앞부분이 잘려 1이 아닌 데서 시작하면 바꿔요</span></div>
+  <div id="startCountRow"><label>영상 첫 박 카운트 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label></div>
   <div id="videoSoundRow"><label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
   <button id="chooseMusic">음악 파일 선택·바꾸기</button></div>
   <input id="musicInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden>
   <div id="videoStatus" role="status"></div>
-  <details id="videoAdjust"><summary>소리 맞춤 조정 (음악 파일을 쓸 때)</summary>
+  <details id="videoAdjust"><summary>소리 맞춤 조정</summary>
   <label>박 기준 <select id="videoBasis" disabled><option value="video">동영상 소리</option><option value="music">내 음악 파일</option></select></label>
   <div><button id="offsetEarlier">음악 시작 0.1초 앞</button> <span id="syncOffset">0.00초</span> <button id="offsetLater">음악 시작 0.1초 뒤</button>
   <label>영상에 맞춘 음악 빠르기 <input id="syncRatio" type="number" min="0.8" max="1" step="0.001" value="1"></label></div>
   <div><button id="offsetEarlierLarge">음악 시작 1초 앞</button> <button id="offsetLaterLarge">음악 시작 1초 뒤</button></div>
   <div><span id="recommendedFit"></span> <button id="applyRecommendation" hidden>추천값 적용</button></div>
   <div id="musicRange" hidden>음악 파일 구간 밖이에요. 영상은 계속 재생돼요.</div>
-  <div style="font-size:11px">맞춤 설정은 이번 열기 동안 유지돼요. 음악 박 기준의 보정은 동영상 기준으로 바꾼 뒤 할 수 있어요.</div>
   </details>
 </section>
 <div id="hud" hidden>
@@ -352,16 +349,16 @@
   <div id="progressLine" class="num"></div>
   <div id="bigCount" class="idle num">–</div>
   <div id="cells" class="num"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div><div>7</div><div>8</div></div>
-  <button id="fxHereHud" title="지금 들리는 소리가 1이면 눌러요 — 여기부터 다시 맞춰요">👆 여기가 1<span style="font-weight:400; opacity:.7">· 박자 밀렸을 때</span></button>
+  <button id="fxHereHud" title="지금 들리는 소리가 1이면 눌러요 — 여기부터 다시 맞춰요">👆 여기가 1</button>
   <div id="fxNudge" class="num">
     <button id="fxBackHud" title="화면 숫자가 실제 박자보다 늦게 나오면(예: 8 자리에 7) 눌러요">◀ 한 박</button>
-    <span>숫자가 어긋나면 한 칸씩</span>
+    <span></span>
     <button id="fxFwdHud" title="화면 숫자가 실제 박자보다 빨리 나오면 눌러요">한 박 ▶</button>
   </div>
   <button id="fxUndoHud" disabled title="방금 누른 보정(여기가 1·한 박·1↔5·구간)을 한 단계 되돌려요">↶ 되돌리기</button>
 </div>
 
-<div id="tlHead" hidden><div>프레이즈 <span style="color:var(--t3)">· 한 줄 = 8카운트 4개</span><span id="loopLabel"></span></div><div style="display:flex; align-items:center; gap:8px"><button id="btnToStart" type="button">⏮ 처음으로</button><div id="tlTime" class="num"></div></div></div>
+<div id="tlHead" hidden><div>프레이즈<span id="loopLabel"></span></div><div style="display:flex; align-items:center; gap:8px"><button id="btnToStart" type="button">⏮ 처음으로</button><div id="tlTime" class="num"></div></div></div>
 <div id="timelineWrap" hidden>
   <div id="timeline">
     <canvas id="wave"></canvas>
@@ -373,24 +370,23 @@
 
 <div id="learnView" class="page" hidden>
   <div class="pageHead"><div class="pageTitle">학습</div></div>
-  <div class="secLabel">박자를 못 듣겠다면 — 딱 이것부터</div>
-  <div class="card" id="btnFind" style="box-shadow:inset 0 0 0 2px var(--yellow)"><div><div class="nm">박자 잡기 <span style="font-size:12px; color:var(--yellow); font-weight:400">처음엔 이것만</span></div><div class="ds">노래의 「1」(여덟 박의 시작)이 어디인지 익혀요 · 힌트 켜서 익히고 → 끄고 스스로 → 「혼자 확인」으로 점수 재기</div></div><div class="chev">›</div></div>
+  <div class="secLabel">기본</div>
+  <div class="card" id="btnFind" style="box-shadow:inset 0 0 0 2px var(--yellow)"><div><div class="nm">박자 잡기</div><div class="ds">노래의 「1」이 어디인지 익혀요</div></div><div class="chev">›</div></div>
 
-  <div class="secLabel">지난번 확인 <span style="color:var(--t3); font-weight:400">— 늘고 있는지 보는 곳</span></div>
+  <div class="secLabel">지난번 확인</div>
   <div class="card" style="flex-direction:column; align-items:stretch; padding:6px 16px" id="lastResults"></div>
 
   <details id="moreLearn" style="margin-top:16px; margin-bottom:10px">
-    <summary style="cursor:pointer; padding:14px 16px; border-radius:16px; background:var(--card); border:1px solid var(--line); color:var(--t1); font-size:15px; font-weight:700">＋ 다른 연습 <span style="color:var(--t3); font-weight:400">· 1이 좀 잡히면 열어요</span></summary>
+    <summary style="cursor:pointer; padding:14px 16px; border-radius:16px; background:var(--card); border:1px solid var(--line); color:var(--t1); font-size:15px; font-weight:700">＋ 다른 연습</summary>
     <div style="margin-top:10px">
-      <div class="ds" style="font-size:12px; color:var(--t3); margin:0 4px 8px">아래는 1을 어느 정도 잡은 다음에 하면 돼요. 지금은 안 눌러도 괜찮아요.</div>
       <div class="card" id="btnGap"><div><div class="nm">혼자 이어가기</div><div class="ds">소리가 사라져도 같은 박자로 계속 세기 · 돌아올 때 확인</div></div><div class="chev">›</div></div>
-      <div class="card" id="btnListen"><div><div class="nm">청음 <span style="font-size:12px; color:var(--t2); font-weight:400">듣고 가려내기</span></div><div class="ds">「딱」 소리가 노래의 박자에 맞는지 귀로 맞혀요 · 처음엔 예시부터 들려줘요</div></div><div class="chev">›</div></div>
+      <div class="card" id="btnListen"><div><div class="nm">청음 <span style="font-size:12px; color:var(--t2); font-weight:400">듣고 가려내기</span></div><div class="ds">「딱」 소리가 박자에 맞는지 귀로 맞혀요</div></div><div class="chev">›</div></div>
       <div class="card" data-level="all"><div><div class="nm">박자 맞추기</div><div class="ds">음악에 맞춰 카운트마다 탭</div></div><div class="chev">›</div></div>
       <div class="card" data-level="even"><div><div class="nm">짝수만</div><div class="ds">2 · 4 · 6 · 8에만 탭</div></div><div class="chev">›</div></div>
       <div class="card" data-level="ones"><div><div class="nm">1만</div><div class="ds">에이트가 시작될 때만 탭</div></div><div class="chev">›</div></div>
       <div class="card" data-level="intro"><div><div class="nm">5·6·7·8 들어가기</div><div class="ds">앱이 5·6·7·8을 불러 주면, 오는 1을 잡아요</div></div><div class="chev">›</div></div>
       <div class="card" data-level="five"><div><div class="nm">5 잡고 1 들어가기</div><div class="ds">귀는 5, 발은 1 — 둘 다 스스로 잡아요</div></div><div class="chev">›</div></div>
-      <div id="testCard" style="margin-top:6px"><div class="nm">박자 테스트 <span style="font-size:12px; opacity:.7; font-weight:400">지금 실력 점수로 재보기</span></div><div class="ds">귀가 좀 트인 다음에 해요</div><button id="btnTest">시작하기</button></div>
+      <div id="testCard" style="margin-top:6px"><div class="nm">박자 테스트 <span style="font-size:12px; opacity:.7; font-weight:400">지금 실력 점수로 재보기</span></div><button id="btnTest">시작하기</button></div>
     </div>
   </details>
 </div>
@@ -403,7 +399,7 @@
       <button class="pillBtn" id="btnAddFiles">＋ 파일 추가</button>
     </div>
   </div>
-  <div class="listHead"><div></div><div>곡 <span style="color:var(--t3); white-space:nowrap">· 밀거나 꾹 눌러 삭제</span></div><div class="r">BPM</div><div class="r">길이</div></div>
+  <div class="listHead"><div></div><div>곡</div><div class="r">BPM</div><div class="r">길이</div></div>
   <div id="songList"></div>
   <div id="listActions"><button id="btnPlayAll">전체 재생</button><button id="btnPlaySel">선택 재생</button></div>
 </div>
@@ -444,9 +440,6 @@
   <h3 id="infoTitle" style="overflow-wrap:anywhere">곡 제목</h3>
   <div class="stats num" id="infoStats"></div>
   <div class="secHead"><b>박자 보정</b><span>카운트가 어긋나게 들릴 때만</span></div>
-  <div style="font-size:13px; color:var(--t2); line-height:1.7; margin-top:6px">
-    대부분은 그대로 들으면 돼요. 어긋나게 들리는 순간이 오면 — 그때 딱 한 번:
-  </div>
   <div class="row">
     <button id="fxHere" style="border-color:var(--yellow); color:var(--yellow); font-weight:700">지금 이 순간이 1이에요</button>
   </div>
@@ -455,7 +448,7 @@
   <div id="truthInfo" style="font-size:13px; color:var(--t2); line-height:1.7; margin-top:6px"></div>
   <div class="row"><button id="btnTruthRec">🎯 1 찍기 시작</button><button id="btnTruthApply">찍은 1로 다시 맞추기</button><button id="btnTruthClear">지우기</button></div>
   <details style="margin-top:12px">
-    <summary style="color:var(--t2); font-size:13px">세부 설정 (몰라도 돼요)</summary>
+    <summary style="color:var(--t2); font-size:13px">세부 설정</summary>
     <div class="label">1의 위치 미세 조정 (곡 전체의 1)</div>
     <div class="row"><button id="fxBack">1 한 박자 앞</button><button id="fxFwd">1 한 박자 뒤</button><button id="fxSwap">1↔5</button></div>
     <div class="row"><button id="fxGlobalHere">지금 이 순간을 곡 전체의 1로</button><button id="fxUndoSection">마지막 구간 보정 취소</button><button id="fxUndo" disabled>↶ 되돌리기</button></div>
@@ -486,7 +479,6 @@
   <div class="secHead"><b>카운트음 크기</b><span>음악에 안 묻히게 키워요</span></div>
   <div class="label">소리 <span id="cueVolV" class="num"></span></div>
   <input type="range" id="cueVol" min="20" max="150" step="10">
-  <div style="font-size:12px; color:var(--t2); margin-top:6px; line-height:1.6">박자가 안 들리면 이걸 끝까지 키우세요. 음악보다 카운트음이 더 크게 들려야 따라가기 쉬워요.</div>
   <div class="secHead"><b>기기 지연 보정</b><span>화면과 소리는 따로 맞춰요</span></div>
   <div class="label">화면 <span id="lagScreenV" class="num"></span></div>
   <input type="range" id="lagScreen" min="0" max="300" step="10">
@@ -544,6 +536,6 @@
   };
 })();
 </script>
-<script type="module" src="./ui/player.js?v=20261027-7"></script>
+<script type="module" src="./ui/player.js?v=20261027-8"></script>
 </body>
 </html>

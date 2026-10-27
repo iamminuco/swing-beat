@@ -85,7 +85,7 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
   $('syncRatio').value = '1'; $('syncOffset').textContent = '0.00초';
   $('musicRange').hidden = true;
   $('applyRecommendation').hidden = true; $('recommendedFit').textContent = '';
-  status('동영상 소리를 분석했어요. 내 음악 파일로 바꿔 들을 수도 있어요.');
+  status('');
   function on(el, event, fn) { el.addEventListener(event, fn); listeners.push([el, event, fn]); }
   function resetGain() {
     for (const el of [v, music]) {

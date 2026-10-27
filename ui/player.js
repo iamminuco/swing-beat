@@ -321,7 +321,7 @@ async function openFile(file, prefix = '') {
     else if (!fresh && !failed) toast('저장된 박자 설정을 불러왔어요'); // 실패 안내도 덮지 않는다(codex 5차)
     // 보정 시트를 먼저 들이밀지 않는다 — 우선 들려주고, 어긋날 때만 안내한다.
     if (fresh && !videoFallback && map.analysis.warnings.includes('count_drift_needs_review')) {
-      toast('중간에 박자가 어긋나게 들리면, 카운트 아래 「여기가 1」을 그 순간에 눌러 주세요 — 거기부터 다시 맞아요');
+      toast('박자가 어긋나면 그 순간 「여기가 1」을 눌러요');
     }
   } catch (err) {
     analyzing.delete(file.name);
@@ -528,16 +528,6 @@ function drawTimeline() {
     const label = !row.phrase ? '시작 전' : '프레이즈 ' + row.phrase;
     g.fillStyle = 'rgba(22,24,29,.8)'; g.fillRect(3, y0 + 3, g.measureText(label).width + 8, 15);
     g.fillStyle = '#f2f1ec'; g.fillText(label, 7, y0 + 5);
-    if (countMode > 0 && row.marks) {
-      g.font = '500 10px system-ui'; g.textBaseline = 'bottom';
-      let k = 0;
-      for (const c of row.marks) {
-        if (c.count !== 1) continue;
-        k++;
-        const x = ((c.time - row.t0) / span) * width;
-        g.fillStyle = '#9aa0ad'; g.fillText('8카운트 ' + k, x + 4, y0 + rowH - 3);
-      }
-    }
   });
   // 반복 구간 테두리 (시안: 줄 바깥 노란 윤곽)
   if (loopOn && loopCur) {
