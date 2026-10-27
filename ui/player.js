@@ -447,8 +447,9 @@ function drawTimeline() {
   if (width <= 0) return; // 숨겨진 탭 — 보일 때 다시 그린다
   // 줄 높이: 남는 높이를 프레이즈 수로 나누되 최소 높이 아래로는 안 줄인다(넘치면 스크롤, 재생 줄을 따라감)
   // — 10/26·10/27 사용자 "프레이즈 보이는 게 너무 작다". 영상과 같이 볼 때는 조금 낮춘다.
-  const minRow = videoSession ? 76 : 96;
-  const rowH = Math.max(minRow, Math.floor((wrap.clientHeight - 8) / rows.length));
+  // 영상 모드는 지금 프레이즈 한 줄만 보인다(줄 높이 = 보이는 높이, 줄이 바뀌면 그 줄로 넘김)
+  const rowH = videoSession ? Math.max(40, wrap.clientHeight)
+    : Math.max(96, Math.floor((wrap.clientHeight - 8) / rows.length));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = width * dpr;
   canvas.height = rowH * rows.length * dpr;
@@ -623,7 +624,8 @@ function paintNow() {
       lastRow = loc.r;
       const wrap = $('timelineWrap');
       const top = loc.r * loc.rowH, bottom = top + loc.rowH;
-      if (top < wrap.scrollTop + loc.rowH || bottom > wrap.scrollTop + wrap.clientHeight - loc.rowH) {
+      if (videoSession) wrap.scrollTo({ top });
+      else if (top < wrap.scrollTop + loc.rowH || bottom > wrap.scrollTop + wrap.clientHeight - loc.rowH) {
         wrap.scrollTo({ top: Math.max(0, top - wrap.clientHeight * 0.4), behavior: 'smooth' });
       }
     }

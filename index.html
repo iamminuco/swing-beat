@@ -239,18 +239,26 @@
            font-size:13px; display:none; z-index:40; max-width:88%; }
   #videoPanel { flex:none; padding:4px 12px; max-height:44dvh; overflow-y:auto; }
   #video { display:block; width:100%; height:19dvh; background:#000; object-fit:contain; }
-  /* 영상과 박자 줄을 같이 본다(10/27 사용자 "영상이랑 그 수술실 심박수같은거랑 같이 보고싶어"):
-     조정 버튼은 접고, 큰 숫자는 줄이고, 박자 줄은 최소 높이를 지킨다 */
-  body.withVideo #videoPanel { max-height:none; overflow:visible; }
-  body.withVideo #video { height:20dvh; }
-  body.withVideo #videoPanel { padding:2px 12px; }
-  body.withVideo #videoStatus { margin:0; }
-  body.withVideo #fxHereHud { margin-top:4px; height:32px; }
-  body.withVideo #hud { padding-top:0; }
-  body.withVideo #bigCount { font-size:40px; }
-  body.withVideo #cells div { height:30px; font-size:17px; }
+  /* 영상 모드(10/27 사용자 "발 동작이랑 박자가 맞는지 보려는 것 — 박자 맨 위, 그 밑에 동영상,
+     프레이즈는 한 줄만, 최대한 동영상을 크게"): 위→아래 = 1~8 · 영상(남는 공간 전부) · 지금 프레이즈 한 줄 · 버튼 */
+  body.withVideo #topBar { order:0; }
+  body.withVideo #hud { order:1; padding:2px 12px 2px; }
+  body.withVideo #videoPanel:not([hidden]) { order:2; flex:1 1 auto; min-height:0; max-height:none; overflow:hidden;
+                                            display:flex; flex-direction:column; padding:4px 0 0; }
+  body.withVideo #video { flex:1 1 auto; min-height:0; height:auto; }
+  body.withVideo #videoSoundRow { flex:none; display:flex; align-items:center; gap:6px; }
+  body.withVideo #videoSoundRow button { flex:none; }
+  body.withVideo #videoSoundRow, body.withVideo #videoStatus,
+  body.withVideo #videoAdjust { margin-left:12px; margin-right:12px; }
+  body.withVideo #videoStatus { margin-top:0; margin-bottom:0; font-size:11px; }
+  body.withVideo #tlHead { order:3; padding:4px 16px 2px; }
+  body.withVideo #timelineWrap { order:4; flex:none; height:64px; overflow:hidden; }
+  body.withVideo #controls { order:5; }
+  body.withVideo #tabBar { order:6; }
+  body.withVideo #bigCount, body.withVideo #trustBadge, body.withVideo #fxHereHud,
   body.withVideo #fxNudge, body.withVideo #fxUndoHud { display:none; }
-  body.withVideo #timelineWrap { flex:1 1 25dvh; min-height:25dvh; }
+  body.withVideo #cells { margin-top:2px; }
+  body.withVideo #cells div { height:34px; font-size:19px; }
   #videoAdjust summary { cursor:pointer; font-size:12px; color:var(--t2); padding:4px; }
   #videoPanel label { display:inline-block; font-size:12px; margin:4px; }
   #videoPanel select, #syncRatio { max-width:100%; background:var(--card); color:var(--t0); font:inherit; }
@@ -306,8 +314,8 @@
 
 <section id="videoPanel" hidden aria-label="동영상과 음악">
   <video id="video" playsinline preload="metadata" hidden></video>
-  <label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
-  <button id="chooseMusic">음악 파일 선택·바꾸기</button>
+  <div id="videoSoundRow"><label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
+  <button id="chooseMusic">음악 파일 선택·바꾸기</button></div>
   <input id="musicInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden>
   <div id="videoStatus" role="status"></div>
   <details id="videoAdjust"><summary>소리 맞춤 조정 (음악 파일을 쓸 때)</summary>
