@@ -1,0 +1,19 @@
+:root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #101620; color: #f4f6fb; }
+* { box-sizing: border-box; }
+body { margin: 0; } main { max-width: 760px; margin: auto; padding: 16px 14px 36px; }
+h1 { font-size: 23px; margin: 8px 0; overflow-wrap: anywhere; } p { margin: 8px 0; }
+button, select, input { font: inherit; } button, select { min-height: 44px; border: 1px solid #53617a; border-radius: 10px; background: #25324a; color: inherit; padding: 8px 12px; }
+button:disabled, select:disabled { opacity: .45; } button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #72daff; }
+input[type=file] { width: 100%; margin: 12px 0; } input[type=range] { width: 100%; min-height: 36px; }
+input[type=checkbox] { width: 22px; height: 22px; vertical-align: middle; }
+#progress { min-height: 24px; color: #8edcf8; } #error { color: #ffb6ab; } #notice, #saveStatus, #uncertainty, #correctionNotice { color: #f7d58a; }
+#songSub { color: #b6c3d8; } #currentBeat { display: block; text-align: center; font-size: 64px; font-weight: 850; line-height: 1.15; }
+#timeline { position: relative; height: 44dvh; min-height: 320px; overflow-y: auto; overscroll-behavior: contain; background: #172133; border-radius: 12px; padding: 8px; }
+.beatRow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; min-height: 96px; align-content: center; border-bottom: 1px solid #42516a; }
+.beat { min-width: 0; padding: 0; min-height: 64px; font-size: clamp(22px, 6vw, 34px); font-weight: 750; background: #27334b; }
+.beat.current { background: #ffda64; color: #151b24; border: 2px solid white; }
+.beatRow small { grid-column: 1 / -1; color: #f7d58a; font-size: 13px; text-align: center; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+#playBtn { flex: 1; min-height: 52px; font-weight: bold; } #practice { margin-top: 18px; padding: 14px; border: 1px solid #53617a; border-radius: 12px; }
+#tapPad { width: 100%; min-height: 160px; font-size: 30px; touch-action: none; user-select: none; background: #254e69; }
+#practiceResult { min-height: 28px; font-weight: bold; } [hidden] { display: none !important; }
