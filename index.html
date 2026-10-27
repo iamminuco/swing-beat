@@ -136,11 +136,13 @@
   .listHead, .songRow { display:grid; grid-template-columns:24px minmax(0,1fr) 76px 44px; column-gap:12px; align-items:center; }
   .listHead { padding:6px 14px; font-size:11px; color:var(--t2); }
   .listHead .r, .songRow .r { text-align:right; }
-  .songRow { height:60px; padding:0 14px; border-radius:14px; background:var(--card); border:1px solid var(--line); margin-bottom:8px;
-             position:relative; overflow:hidden; touch-action:pan-y; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
-  .songRow .rowDel { position:absolute; top:0; right:0; bottom:0; width:84px; flex:none; padding:0; border:0; border-radius:0;
-                     background:#e5484d; color:#fff; font-size:15px; font-weight:700; transform:translateX(100%); transition:transform .15s; }
-  .songRow.delOpen .rowDel { transform:none; }
+  .songRow { height:60px; padding:0 14px; border-radius:14px; background:var(--card); border:1px solid var(--line); margin-bottom:8px; }
+  .swipeWrap { position:relative; overflow:hidden; border-radius:14px; margin-bottom:8px; }
+  .swipeWrap .songRow { margin-bottom:0; position:relative; z-index:1; transition:transform .18s;
+                        touch-action:pan-y; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+  .swipeWrap .songRow.dragging { transition:none; }
+  .swipeWrap .rowDel { position:absolute; top:0; right:0; bottom:0; width:84px; flex:none; padding:0; border:0; border-radius:0;
+                       background:#e5484d; color:#fff; font-size:15px; font-weight:700; }
   .songRow .nm { font-size:15px; font-weight:500; color:var(--t0); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .songRow .mt { font-size:14px; color:var(--t1); }
   .songRow.busy .nm { color:var(--t3); }
@@ -529,6 +531,6 @@
   };
 })();
 </script>
-<script type="module" src="./ui/player.js"></script>
+<script type="module" src="./ui/player.js?v=20261027-2"></script>
 </body>
 </html>

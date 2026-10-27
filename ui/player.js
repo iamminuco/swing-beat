@@ -1158,8 +1158,7 @@ async function renderList() {
       if (seq !== openSeq || !blob) return;
       if ((await openStored(m, blob, seq)).ok) play();
     };
-    attachDelete(row, m, key);
-    box.appendChild(row);
+    box.appendChild(attachDelete(row, m, key));
   }
   for (const name of analyzing) {
     const row = document.createElement('div');
@@ -1170,33 +1169,55 @@ async function renderList() {
   }
   paintListActions();
 }
-// 곡 지우기: 왼쪽으로 밀거나 꾹 누르면 오른쪽에 「삭제」가 나온다(10/27 사용자 "삭제가 안 되네").
+// 곡 지우기: 줄을 왼쪽으로 밀면 손가락을 따라 밀리며 뒤의 「삭제」가 드러나고, 꾹 눌러도 열린다
+// (10/27 사용자 "삭제가 안 되네" → "폰에서 안 움직이는데"). 아이폰은 터치 이벤트, 컴퓨터는 마우스로 처리한다.
 // 민 직후·꾹 누른 직후의 탭은 곡 열기로 새지 않게 막고, 열린 줄의 다른 곳을 누르면 닫는다.
+const DEL_W = 84;
 function attachDelete(row, m, key) {
+  const wrap = document.createElement('div');
+  wrap.className = 'swipeWrap';
   const del = document.createElement('button');
   del.className = 'rowDel';
   del.textContent = '삭제';
-  row.appendChild(del);
-  let x0 = null, y0 = 0, timer = 0, swallow = false;
-  const setOpen = on => row.classList.toggle('delOpen', on);
-  row.addEventListener('pointerdown', e => {
-    if (e.target === del) return;
-    x0 = e.clientX; y0 = e.clientY; swallow = false;
-    timer = setTimeout(() => { setOpen(true); swallow = true; navigator.vibrate?.(15); }, 550);
-  });
-  row.addEventListener('pointermove', e => {
+  wrap.append(del, row);
+  let open = false, x0 = null, y0 = 0, base = 0, dx = 0, timer = 0, swallow = false, horizontal = false;
+  const place = (x, animate) => { row.classList.toggle('dragging', !animate); row.style.transform = x ? `translateX(${x}px)` : ''; };
+  const setOpen = on => { open = on; place(on ? -DEL_W : 0, true); };
+  const start = (x, y) => {
+    x0 = x; y0 = y; base = open ? -DEL_W : 0; dx = 0; swallow = false; horizontal = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (!horizontal) { setOpen(true); swallow = true; navigator.vibrate?.(15); } }, 550);
+  };
+  const move = (x, y) => {
     if (x0 == null) return;
-    const dx = e.clientX - x0, dy = e.clientY - y0;
+    dx = x - x0;
+    const dy = y - y0;
     if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearTimeout(timer);
-    if (Math.abs(dy) > 30) { x0 = null; return; } // 세로 스크롤
-    if (dx < -40) { setOpen(true); swallow = true; } else if (dx > 40) { setOpen(false); swallow = true; }
-  });
-  const end = () => { clearTimeout(timer); x0 = null; };
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) row.addEventListener(ev, end);
+    if (!horizontal) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { x0 = null; return; } // 세로 스크롤
+      if (Math.abs(dx) > 8) horizontal = true; else return;
+    }
+    swallow = true;
+    place(Math.max(-DEL_W - 24, Math.min(0, base + dx)), false);
+  };
+  const end = () => {
+    clearTimeout(timer);
+    if (x0 != null && horizontal) setOpen(base + dx < -DEL_W / 2);
+    x0 = null;
+  };
+  if ('ontouchstart' in window) {
+    row.addEventListener('touchstart', e => { if (e.touches.length === 1) start(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+    row.addEventListener('touchmove', e => move(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+    row.addEventListener('touchend', end);
+    row.addEventListener('touchcancel', end);
+  } else {
+    row.addEventListener('mousedown', e => start(e.clientX, e.clientY));
+    window.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+    window.addEventListener('mouseup', () => { if (x0 != null) end(); });
+  }
   row.addEventListener('contextmenu', e => e.preventDefault());
   row.addEventListener('click', e => {
-    if (e.target === del) return;
-    if (swallow || row.classList.contains('delOpen')) {
+    if (swallow || open) {
       e.stopImmediatePropagation(); e.preventDefault();
       if (!swallow) setOpen(false);
       swallow = false;
@@ -1215,6 +1236,7 @@ function attachDelete(row, m, key) {
     toast(`「${baseName(m.song.name)}」 지웠어요`);
     renderList();
   };
+  return wrap;
 }
 
 function paintListActions() {
