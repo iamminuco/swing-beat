@@ -22,6 +22,7 @@ import { saveSongMap, loadSongMap, listSongMaps, removeSongMap } from '../storag
 import { decodeToModelRate, MODEL_SR } from '../audio/decode.js';
 import { createClickEngine } from '../audio/click.js';
 import { isVideoFile, checkVideoSize } from '../core/video-sync.js';
+import { attachVideoZoom } from './video-zoom.js';
 import { hasVideoTrack, createVideoSession, primeMedia } from '../audio/video.js';
 import { startGame } from './game.js';
 import { startBounce } from './bounce.js';
@@ -38,6 +39,8 @@ const PREFS = 'beatapp_prefs_v1'; // 컨트롤 펼침 · 강세 방식
 const $ = id => document.getElementById(id);
 let au = $('au');
 let videoSession = null;
+// 영상 확대(10/27 사용자 "동영상 인물 확대도"): 두 손가락 벌리기·두 번 탭·확대 상태에서 끌기
+const videoZoom = attachVideoZoom($('videoBox'), $('video'), $('zoomReset'));
 let unsavedSong = false;
 const audioOnlyBlobs = new WeakSet(), sessionVideos = new Map();
 function isVideoSong(m) {

@@ -257,6 +257,10 @@
   /* 영상은 틀(videoBox)에 꽉 맞춰 줄인다 — 아이폰 사파리에서 영상 자체를 늘어나는 칸에 두면 높이를 못 줄여 아래가 잘렸다(10/27) */
   body.withVideo #videoBox { flex:1 1 auto; min-height:0; position:relative; background:#000; }
   body.withVideo #videoBox #video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  /* 영상 확대(10/27): 틀 안에서만 키우고, 틀 위 손가락 동작은 페이지 스크롤·확대가 아니라 영상 확대로 쓴다 */
+  #videoBox { overflow:hidden; touch-action:none; }
+  #zoomReset { position:absolute; right:8px; top:8px; z-index:2; padding:6px 10px; font-size:12px;
+               background:#000a; color:#fff; border:1px solid #fff6; border-radius:8px; }
   body.withVideo #videoSoundRow { flex:none; display:flex; align-items:center; gap:6px; }
   body.withVideo #videoSoundRow button { flex:none; }
   #startCountRow { display:flex; align-items:center; gap:8px; font-size:12px; }
@@ -327,7 +331,7 @@
 </div>
 
 <section id="videoPanel" hidden aria-label="동영상과 음악">
-  <div id="videoBox"><video id="video" playsinline preload="metadata" hidden></video></div>
+  <div id="videoBox"><video id="video" playsinline preload="metadata" hidden></video><button id="zoomReset" type="button" hidden>원래 크기</button></div>
   <div id="startCountRow"><label>영상 첫 박 카운트 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label><span>앞부분이 잘려 1이 아닌 데서 시작하면 바꿔요</span></div>
   <div id="videoSoundRow"><label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
   <button id="chooseMusic">음악 파일 선택·바꾸기</button></div>
@@ -540,6 +544,6 @@
   };
 })();
 </script>
-<script type="module" src="./ui/player.js?v=20261027-5"></script>
+<script type="module" src="./ui/player.js?v=20261027-6"></script>
 </body>
 </html>
