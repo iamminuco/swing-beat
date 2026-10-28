@@ -56,7 +56,7 @@ let videoSession = null;
 // 영상 확대(10/27 사용자 "동영상 인물 확대도"): 두 손가락 벌리기·두 번 탭·확대 상태에서 끌기
 const videoZoom = attachVideoZoom($('videoBox'), $('video'), $('zoomReset'));
 let unsavedSong = false;
-const audioOnlyBlobs = new WeakSet(), sessionVideos = new Map();
+const audioOnlyBlobs = new WeakSet(), sessionVideos = new Map(), videoSaves = new Map();
 function isVideoSong(m) {
   if (sessionVideos.has(songKey(m.song))) return true;
   try {
@@ -71,7 +71,8 @@ function primeVideo() {
   if (!el.src) primeMedia(el);
 }
 function mediaBlob(m) {
-  return isVideoSong(m) ? Promise.resolve(sessionVideos.get(songKey(m.song)) || null) : loadAudio(songKey(m.song));
+  const key = songKey(m.song);
+  return sessionVideos.has(key) ? Promise.resolve(sessionVideos.get(key)) : loadAudio(key);
 }
 
 let map = null, lay = null, samples = null, rows = [];
@@ -112,7 +113,7 @@ function ensureCtx() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (dbg) audioCtx.onstatechange = () => dbg('소리엔진 ' + audioCtx.state);
   }
-  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') audioCtx.resume().catch(() => {});
   return audioCtx;
 }
 // iOS: 백그라운드에 갔다 오면 컨텍스트가 suspended로 남을 수 있다 — 화면·소리는 도는데
@@ -133,7 +134,7 @@ document.addEventListener('visibilitychange', () => {
   engine.cancelPending();
   if (!learning) resync();
 });
-document.addEventListener('pointerdown', () => { if (audioCtx && audioCtx.state === 'suspended') ensureCtx(); }, { passive: true });
+document.addEventListener('pointerdown', () => { if (audioCtx && (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted')) ensureCtx(); }, { passive: true });
 
 // 짝수 강세의 정본(시안 §6 ①): 음악 자체를 짝수 박에서 +3.5dB 키운다.
 // 음악과 같은 출력 경로라 별도 지연 보정 없이 저절로 동기된다.
@@ -250,8 +251,23 @@ async function analyzeAndSave(file, progress, isCurrent = () => true) {
   if (candidate || /\.(mp4|mov|webm)$/i.test(file.name || '')) {
     try { localStorage.setItem('beatapp_media:' + songKey(m.song), hasTrack ? 'video' : 'audio'); } catch { /* private mode */ }
   }
-  if (hasTrack) sessionVideos.set(songKey(m.song), file);
-  const stored = hasTrack || await saveAudio(songKey(m.song), file); // 기기 안 저장 — 다음에 열 때 파일 재선택 불요
+  let stored = true;
+  // 영상 사본 저장 상한 300MB: 저장은 바이트 전체를 메모리에 올려 쓰고 다시 읽어 확인한다 — 아이폰 탭이 메모리로 죽지 않게 큰 영상은 건너뛴다
+  if (hasTrack && file.size > 300 * 1024 * 1024) {
+    sessionVideos.set(songKey(m.song), file);
+    toast('영상이 커서(300MB 넘음) 기기에 저장하지 않았어요 — 새로고침하면 다시 넣어야 해요');
+  } else if (hasTrack) {
+    const key = songKey(m.song);
+    sessionVideos.set(key, file);
+    // 큰 영상의 바이트 저장·확인은 뒤에서 진행한다. 같은 키의 저장은 순서대로 끝낸다.
+    const saving = (videoSaves.get(key) || Promise.resolve()).then(() => saveAudio(key, file)).catch(() => false);
+    videoSaves.set(key, saving);
+    saving.then(() => {
+      if (videoSaves.get(key) !== saving) return;
+      videoSaves.delete(key);
+      renderList();
+    });
+  } else stored = await saveAudio(songKey(m.song), file);
   if (!stored) { // 재분석 실패 안내가 있었으면 한 토스트로 합친다(codex 6차: 뒤 토스트가 앞 안내를 덮었다)
     toast((failed ? '예전 분석으로 열었고, ' : '') +
       `「${baseName(file.name)}」 파일을 기기에 저장하지 못했어요(용량 부족?) — 다음엔 다시 골라야 해요`);
@@ -294,8 +310,8 @@ function mountSong(m, pcm, blob, temporary = false) {
   objectUrl = URL.createObjectURL(blob);
   au.src = objectUrl;
   }
-  // 영상은 파일을 기기에 저장하지 않아 다음에 못 연다 — 마지막 곡 기록은 음악 곡만 남긴다(10/27 사용자 "곡이 없는데")
-  if (!temporary && !videoSession) {
+  // 영상도 같은 바이트 저장소에서 복원한다. 임시로 연 곡만 마지막 곡 기록에서 제외한다.
+  if (!temporary) {
     try { localStorage.setItem(LAST_SONG, songKey(m.song)); } catch { /* private */ }
   }
   $('songTitle').textContent = baseName(m.song.name);
@@ -1180,7 +1196,7 @@ async function renderList() {
   }
   for (const m of maps) {
     const key = songKey(m.song);
-    const has = isVideoSong(m) ? sessionVideos.has(key) : stored.has(key);
+    const has = sessionVideos.has(key) || stored.has(key);
     const row = document.createElement('div');
     row.className = 'songRow' + (has ? '' : ' busy');
     const bpm = tempoBpm(m);
@@ -1272,6 +1288,7 @@ function attachDelete(row, m, key) {
   del.onclick = async e => {
     e.stopPropagation();
     removeSongMap(m.song);
+    await videoSaves.get(key); // 저장이 뒤늦게 끝나 삭제한 영상 바이트를 되살리지 않게 한다
     await deleteAudio(key);
     try {
       localStorage.removeItem('beatapp_media:' + key);
@@ -1310,7 +1327,7 @@ async function startQueue(maps) {
   if (maps.some(isVideoSong)) primeVideo();
   if (!au.src) au.play().catch(() => {});
   const stored = new Set(await listAudioKeys());
-  queue = maps.filter(m => isVideoSong(m) ? sessionVideos.has(songKey(m.song)) : stored.has(songKey(m.song)));
+  queue = maps.filter(m => sessionVideos.has(songKey(m.song)) || stored.has(songKey(m.song)));
   if (!queue.length) { toast('저장된 곡 파일이 없어요 — 「파일 추가」로 다시 넣어 주세요'); return; }
   if (loopOn) setLoop(false);
   playQueued(0);
@@ -1507,17 +1524,19 @@ async function openStored(stored, blob, seq = ++openSeq) {
 async function restoreLastSong() {
   let key = null;
   try { key = localStorage.getItem(LAST_SONG); } catch { return; }
+  const seq = ++openSeq;
   const maps = listSongMaps();
   let m = key ? maps.find(x => songKey(x.song) === key) : null;
-  if (!m || isVideoSong(m)) { // 마지막이 영상이었으면(10/27 이전 기록) 기기에 저장된 음악 곡으로 연다
+  let blob = m ? await mediaBlob(m) : null;
+  if (seq !== openSeq) return;
+  if (!blob) {
     let stored;
     try { stored = new Set(await listAudioKeys()); } catch { return; }
-    m = maps.find(x => !isVideoSong(x) && stored.has(songKey(x.song)));
+    if (seq !== openSeq) return;
+    m = maps.find(x => stored.has(songKey(x.song)));
     if (!m) return;
+    blob = await mediaBlob(m);
   }
-  key = songKey(m.song);
-  const seq = ++openSeq;
-  const blob = await loadAudio(key);
   if (!blob || seq !== openSeq) return; // 그새 사용자가 다른 곡을 골랐다
   const r = await openStored(m, blob, seq);
   if (r.ok && !r.refreshed && !r.failed) toast('이어서: ' + baseName(m.song.name)); // 재분석·실패 안내를 덮지 않는다(codex 4·5차)

@@ -125,30 +125,251 @@ test('R07: metadata without a video track falls back and cleans up its URL', asy
     assert.equal(videos, 0); assert.equal(mount.au.src, 'blob:audio');
   } finally { globalThis.document = previous; }
 });
-test('R08: video save skips audio bytes; restore returns before reading a video; list and queue prime before awaits', async () => {
-  let saves = 0;
-  const ctx = { isVideoFile, checkVideoSize() {}, hasVideoTrack: async () => true, audioOnlyBlobs: new WeakSet(),
-    decodeToModelRate: async () => ({ samples: new Float32Array(0), duration: 60 }),
-    loadSongMap: () => ({ song: { name: 'clip.mp4', size: 1, duration: 60 } }),
-    refreshIfStale: async m => ({ m, refreshed: false, failed: false }),
-    localStorage: { setItem() {} }, saveSongMap: m => m, saveAudio: async () => { saves++; return true; },
-    songKey: () => 'v', sessionVideos: new Map(), toast() {} };
+// R08 replaces the obsolete contract that deliberately discarded video bytes.
+function videoSaveEnv(save, extra = {}) {
+  const m = { song: { name: 'clip.mp4', size: 4, duration: 60 }, corrections: { oneAnchorTime: 2 } };
+  const ctx = {
+    isVideoFile, checkVideoSize() {}, hasVideoTrack: async () => true,
+    audioOnlyBlobs: new WeakSet(), sessionVideos: new Map(), videoSaves: new Map(),
+    decodeToModelRate: async () => ({ samples: new Float32Array(1), duration: 60 }),
+    loadSongMap: () => m, refreshIfStale: async m => ({ m }),
+    localStorage: { setItem() {} }, songKey: s => s.name,
+    saveAudio: save, toast: assert.fail, renderList() {}, ...extra,
+  };
   vm.createContext(ctx);
   vm.runInContext(extract('async function analyzeAndSave(', '\n// 재생 화면') + '\nthis.run = analyzeAndSave;', ctx);
-  const blob = { type: 'video/mp4', name: 'clip.mp4', size: 1 };
-  await ctx.run(blob, () => {});
-  assert.equal(saves, 0); assert.equal(ctx.sessionVideos.get('v'), blob);
-  let reads = 0;
-  const restore = { localStorage: { getItem: () => 'v' }, LAST_SONG: 'last',
-    listSongMaps: () => [{ song: { mediaType: 'video/mp4' } }], songKey: () => 'v',
-    isVideoSong: () => true, loadAudio: async () => { reads++; }, openSeq: 0 };
-  vm.createContext(restore);
-  vm.runInContext(extract('async function restoreLastSong()', '\nwindow.addEventListener') + '\nthis.run = restoreLastSong;', restore);
-  await restore.run(); assert.equal(reads, 0);
-  assert.match(player, /영상은 다시 넣어야 해요/);
-  assert.match(player, /if \(isVideoSong\(m\)\) primeVideo\(\);[\s\S]*?await mediaBlob\(m\)/);
-  assert.match(player, /if \(maps.some\(isVideoSong\)\) primeVideo\(\);[\s\S]*?await listAudioKeys\(\)/);
+  return ctx;
+}
+const drainSaves = async ctx => { await Promise.all(ctx.videoSaves.values()); await Promise.resolve(); };
+
+test('VS01: video saving starts in background and never delays opening', async () => {
+  let saves = 0, finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  const ctx = videoSaveEnv(() => { saves++; return pending; });
+  const file = Object.assign(new Blob(['clip'], { type: 'video/mp4' }), { name: 'clip.mp4' });
+  const result = await ctx.run(file, () => {});
+  assert.equal(saves, 1, 'confirmed video must reach the existing byte store');
+  assert.equal(ctx.sessionVideos.get('clip.mp4'), file);
+  assert.equal(result.m.corrections.oneAnchorTime, 2);
+  assert.equal(ctx.videoSaves.size, 1, 'opening must finish before storage finishes');
+  finish(true); await drainSaves(ctx);
+  assert.equal(ctx.videoSaves.size, 0);
 });
+
+test('VS02: quota failure is quiet and preserves the session video', async () => {
+  const ctx = videoSaveEnv(async () => { throw new DOMException('full', 'QuotaExceededError'); });
+  const file = { type: 'video/mp4', name: 'clip.mp4', size: 4 };
+  const result = await ctx.run(file, () => {});
+  await drainSaves(ctx);
+  assert.equal(ctx.sessionVideos.get('clip.mp4'), file);
+  assert.ok(!result.failed);
+});
+
+function videoDb(t) {
+  const previous = globalThis.indexedDB, records = new Map();
+  const state = { fail: false, lose: false };
+  const request = value => {
+    const req = {};
+    queueMicrotask(() => { req.result = value(); req.onsuccess?.(); });
+    return req;
+  };
+  const db = {
+    transaction() {
+      const tx = {};
+      tx.objectStore = () => ({
+        put(raw, key) {
+          queueMicrotask(() => {
+            if (state.fail) { tx.error = new DOMException('full', 'QuotaExceededError'); tx.onabort?.(); }
+            else { if (!state.lose) records.set(key, structuredClone(raw)); tx.oncomplete?.(); }
+          });
+        },
+        get: key => request(() => records.get(key)),
+        getAllKeys: () => request(() => [...records.keys()]),
+        delete(key) { queueMicrotask(() => { records.delete(key); tx.oncomplete?.(); }); },
+      });
+      return tx;
+    },
+  };
+  globalThis.indexedDB = { open: () => request(() => db) };
+  t.after(() => { if (previous === undefined) delete globalThis.indexedDB; else globalThis.indexedDB = previous; });
+  return { records, state };
+}
+function videoMemoryStorage() {
+  const data = new Map();
+  return { get length() { return data.size; }, key: i => [...data.keys()][i],
+    getItem: k => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)), removeItem: k => data.delete(k) };
+}
+
+test('VS03: v2 video bytes verify, reload, list and delete; quota and lost writes return false', async t => {
+  const db = videoDb(t);
+  const { saveAudio, loadAudio, listAudioKeys, deleteAudio } = await import('../storage/audiostore.js');
+  const blob = Object.assign(new Blob(['movie bytes'], { type: 'video/mp4' }), { name: 'clip.mp4' });
+  assert.equal(await saveAudio('v', blob), true);
+  const raw = db.records.get('v');
+  assert.ok(raw.buf instanceof ArrayBuffer); assert.equal(raw.type, 'video/mp4'); assert.equal(raw.name, 'clip.mp4');
+  const back = await loadAudio('v');
+  assert.equal(await back.text(), 'movie bytes'); assert.equal(back.type, blob.type);
+  assert.deepEqual(await listAudioKeys(), ['v']);
+  assert.equal(await deleteAudio('v'), true); assert.equal(await loadAudio('v'), null);
+  db.state.fail = true; assert.equal(await saveAudio('quota', blob), false);
+  db.state.fail = false; db.state.lose = true; assert.equal(await saveAudio('lost', blob), false);
+});
+
+test('VS04: reload restores LAST_SONG video, saved first count and corrections without a track probe', async t => {
+  videoDb(t);
+  const { saveAudio, loadAudio, listAudioKeys } = await import('../storage/audiostore.js');
+  const { createSongMap, songKey } = await import('../core/songmap/schema.js');
+  const { saveSongMap, loadSongMap, listSongMaps } = await import('../storage/songstore.js');
+  const { withOneAt, withSectionOne, layout, effectiveGrid } = await import('../core/songmap/songmap.js');
+  const storage = videoMemoryStorage(), file = Object.assign(new Blob(['clip'], { type: 'video/mp4' }), { name: 'clip.mp4' });
+  let m = createSongMap({ name: file.name, size: file.size, duration: 60 }, {
+    sr: 22050, duration: 60, firstOnset: 0, beats: Array.from({ length: 120 }, (_, i) => i / 2),
+    downbeats: [0, 2, 4], barPhase: { offset: 0, confidence: 1 }, tempoFactor: 1, diagnostics: { warnings: [] },
+  });
+  m = withSectionOne(withOneAt(m, 2), 10);
+  saveSongMap(m, storage);
+  const key = songKey(m.song);
+  const writer = videoSaveEnv(saveAudio, {
+    songKey, localStorage: storage, loadSongMap: () => loadSongMap(m.song, storage),
+  });
+  await writer.run(file, () => {}); await drainSaves(writer);
+  const nodes = {}, native = { pause() {}, removeAttribute() {}, load() {} };
+  let probes = 0, videoMounts = 0;
+  const ctx = {
+    localStorage: storage, LAST_SONG: 'beatapp_last_song', songKey, isVideoFile, loadAudio, listAudioKeys,
+    sessionVideos: new Map(), audioOnlyBlobs: new WeakSet(), openSeq: 0, videoSession: null,
+    listSongMaps: () => listSongMaps(storage), loadSongMap: s => loadSongMap(s, storage),
+    decodeToModelRate: async () => ({ samples: new Float32Array(1) }),
+    refreshIfStale: async m => ({ m }), hasVideoTrack() { probes++; throw Error('must not probe restored bytes'); },
+    clearTimeout() {}, countInTimer: null, queue: [], undoStack: [], objectUrl: null, au: native,
+    URL: { createObjectURL: () => 'blob:video' }, ensureCtx() {}, bindPlayback() {},
+    createVideoSession({ videoMap }) {
+      videoMounts++; assert.deepEqual(videoMap.corrections, m.corrections);
+      return { transport: {}, layout: x => x };
+    },
+    $: id => nodes[id] ||= {}, switchTab() {}, baseName: x => x, toast() {},
+    layout, effectiveGrid,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(extract('function isVideoSong(', '\nfunction primeVideo(') +
+    extract('function mediaBlob(', '\n\nlet map =') +
+    extract('function withPickupCounts(', '\nfunction rebuild(') +
+    extract('function mountSong(', '\nasync function openFile(') +
+    extract('async function openStored(', '\nwindow.addEventListener') +
+    '\nthis.mount = mountSong; this.restore = restoreLastSong;' +
+    '\nfunction rebuild() { this.firstCount = withPickupCounts(layout(map)).counts[0].count; }', ctx);
+  ctx.mount(m, new Float32Array(1), file);
+  assert.equal(storage.getItem('beatapp_last_song'), key, 'mount must remember a video');
+  ctx.videoSession = null; ctx.au = native; ctx.sessionVideos.clear(); videoMounts = 0;
+  await ctx.restore();
+  assert.equal(videoMounts, 1); assert.equal(probes, 0); assert.equal(ctx.firstCount, 5);
+  assert.equal(ctx.map.corrections.oneAnchorTime, 2);
+  assert.deepEqual(ctx.map.corrections.sectionOnes, [10]);
+});
+
+test('VS05: persisted video is available in list and queue with an empty session cache', async () => {
+  const m = { song: { name: 'clip.mp4', duration: 60 } }, blob = new Blob(['clip'], { type: 'video/mp4' });
+  const nodes = {}, rows = [];
+  const node = () => ({ hidden: false, classList: { toggle() {} }, querySelector: () => node(), appendChild: r => rows.push(r) });
+  const ctx = {
+    $: id => nodes[id] ||= node(), document: { createElement: node },
+    listSongMaps: () => [m], listAudioKeys: async () => ['v'], songKey: () => 'v',
+    isVideoSong: () => true, sessionVideos: new Map(), loadAudio: async () => blob,
+    analyzing: new Set(), selected: new Set(), tempoBpm: () => 120, fmtTime: () => '1:00', baseName: x => x,
+    paintListActions() {}, attachDelete: row => row, ensureCtx() {}, primeVideo() {},
+    au: { src: 'old' }, openSeq: 0, queue: [], loopOn: false, playQueued() {}, toast: assert.fail,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(extract('function mediaBlob(', '\n\nlet map =') +
+    extract('async function renderList()', '\n// 곡 지우기:') +
+    extract('async function startQueue(', "\n$('btnPlayAll')") +
+    '\nthis.render = renderList; this.start = startQueue; this.get = mediaBlob;', ctx);
+  await ctx.render(); assert.equal(rows[0].className, 'songRow');
+  await ctx.start([m]); assert.equal(ctx.queue.length, 1); assert.equal(await ctx.get(m), blob);
+});
+
+test('VS06: delete waits for an unfinished video save, then removes the bytes', async () => {
+  let finish, exists = false, deleted = false;
+  const ctx = videoSaveEnv(() => new Promise(resolve => {
+    finish = () => { exists = true; resolve(true); };
+  }));
+  await ctx.run({ name: 'clip.mp4', type: 'video/mp4', size: 4 }, () => {});
+  const node = () => ({ classList: { toggle() {} }, style: {}, addEventListener() {}, append(...children) { this.children = children; } });
+  Object.assign(ctx, {
+    document: { createElement: node }, window: { addEventListener() {} }, DEL_W: 84,
+    removeSongMap() {}, deleteAudio: async () => { exists = false; deleted = true; },
+    localStorage: videoMemoryStorage(), LAST_SONG: 'last', selected: new Set(), baseName: x => x, toast() {},
+  });
+  vm.runInContext(extract('function attachDelete(', '\nfunction paintListActions(') + '\nthis.attach = attachDelete;', ctx);
+  const wrap = ctx.attach(node(), { song: { name: 'clip.mp4' } }, 'clip.mp4');
+  const removing = wrap.children[0].onclick({ stopPropagation() {} });
+  assert.equal(deleted, false, 'delete cannot run before the in-flight write');
+  finish(); await removing;
+  assert.equal(deleted, true); assert.equal(exists, false); assert.equal(ctx.sessionVideos.size, 0);
+});
+
+test('VS07: delayed fallback lookup cannot replace a newer selection', async () => {
+  let finish, mounted = 0;
+  const ctx = { localStorage: { getItem: () => null }, LAST_SONG: 'last', openSeq: 0,
+    listSongMaps: () => [{ song: { name: 'clip.mp4' } }], songKey: s => s.name,
+    listAudioKeys: () => new Promise(resolve => { finish = resolve; }), isVideoSong: () => true,
+    mediaBlob: async () => new Blob(['v']), loadAudio: async () => new Blob(['v']),
+    openStored: async () => { mounted++; return { ok: true }; }, toast() {}, baseName: x => x };
+  vm.createContext(ctx);
+  vm.runInContext(extract('async function restoreLastSong()', '\nwindow.addEventListener') + '\nthis.run = restoreLastSong;', ctx);
+  const pending = ctx.run(); ctx.openSeq++; finish(['clip.mp4']); await pending;
+  assert.equal(mounted, 0);
+});
+
+class ReplayMedia extends EventTarget {
+  constructor() { super(); Object.assign(this, { paused: true, muted: false, currentTime: 0, playbackRate: 1, duration: 60, readyState: 4, src: '' }); }
+  play() { this.paused = false; this.dispatchEvent(new Event('playing')); return Promise.resolve(); }
+  pause() { if (!this.paused) { this.paused = true; this.dispatchEvent(new Event('pause')); } }
+  load() {}
+  removeAttribute() { this.src = ''; }
+}
+function replayEnv(t) {
+  const previous = globalThis.document; globalThis.document = { hidden: false };
+  t.after(() => { globalThis.document = previous; });
+  const nodes = { video: new ReplayMedia(), replacementAudio: new ReplayMedia() }, $ = id => nodes[id] ||= new El();
+  const ctx = { state: 'running', resumes: 0, sources: 0, destination: {},
+    resume() { this.resumes++; this.state = 'running'; return Promise.resolve(); },
+    createGain: () => ({ gain: { value: 1, cancelScheduledValues() {} }, connect() {} }),
+    createMediaElementSource() { this.sources++; return { connect: g => g }; } };
+  const scope = { audioCtx: ctx, dbg: null };
+  vm.createContext(scope);
+  vm.runInContext(extract('function ensureCtx()', '// iOS:') + '\nthis.ensure = ensureCtx;', scope);
+  const make = () => {
+    const s = createVideoSession({ $, blob: new Blob(['clip']), pcm: new Float32Array(1),
+      videoMap: { song: { duration: 60 } }, ensureCtx: scope.ensure,
+      analyzeMusic: async () => ({ pcm: new Float32Array(1), m: { song: { duration: 60 } } }),
+      onChange() {}, onClockChange() {} });
+    t.after(() => s.dispose()); return s;
+  };
+  return { $, ctx, make };
+}
+for (const state of ['suspended', 'interrupted']) test('VS08: graph-bound A -> B -> A resumes ' + state + ' context before playback', async t => {
+  const e = replayEnv(t), a = e.make(), gain = a.ensureMediaGraph(e.ctx);
+  await a.transport.play(); gain.gain.value = 0; a.dispose();
+  const b = e.make(); await b.transport.play(); b.dispose();
+  const again = e.make(); e.ctx.state = state; const before = e.ctx.resumes;
+  await again.transport.play();
+  assert.equal(e.$('video').paused, false);
+  assert.equal(e.ctx.state, 'running', 'video moving with a non-running graph has no sound');
+  assert.equal(e.ctx.resumes, before + 1); assert.equal(e.ctx.sources, 1);
+  assert.equal(gain.gain.value, 1); assert.equal(e.$('video').muted, false);
+});
+
+test('VS09: disposal clears both mute flags and gain; ordinary replay creates no media graph', async t => {
+  const e = replayEnv(t), a = e.make();
+  await a.transport.play(); assert.equal(e.ctx.sources, 0);
+  e.$('video').muted = true; e.$('replacementAudio').muted = true;
+  a.dispose();
+  assert.equal(e.$('video').muted, false); assert.equal(e.$('replacementAudio').muted, false);
+  const again = e.make(); await again.transport.play();
+  assert.equal(e.ctx.sources, 0); assert.equal(e.$('video').muted, false);
+});
+
 test('R09: decoder hands the original buffer directly to decodeAudioData', async () => {
   const previous = globalThis.OfflineAudioContext, buffer = new ArrayBuffer(8); let passed;
   globalThis.OfflineAudioContext = class {

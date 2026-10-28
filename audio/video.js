@@ -80,7 +80,7 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
     status(followerNotice);
   }
   const videoUrl = URL.createObjectURL(blob), listeners = [];
-  panel.hidden = false; v.hidden = false; v.muted = false; v.src = videoUrl; v.load();
+  panel.hidden = false; v.hidden = false; v.muted = false; music.muted = false; resetGain(); v.src = videoUrl; v.load();
   sound.value = 'video'; basis.value = 'video'; basis.disabled = true;
   $('syncRatio').value = '1'; $('syncOffset').textContent = '0.00초';
   $('musicRange').hidden = true;
@@ -361,7 +361,7 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
       if (dead) return;
       dead = true; request++; alignmentController?.abort(); clearInterval(timer); transport.pause();
       for (const [el, event, fn] of listeners) el.removeEventListener(event, fn);
-      for (const el of [v, music]) { el.removeAttribute('src'); el.load(); }
+      for (const el of [v, music]) { el.muted = false; el.removeAttribute('src'); el.load(); }
       URL.revokeObjectURL(videoUrl); if (musicUrl) URL.revokeObjectURL(musicUrl);
       for (const el of [sound, basis, input, $('chooseMusic'), $('offsetEarlier'), $('offsetLater'), $('syncRatio'), $('applyRecommendation'), $('offsetEarlierLarge'), $('offsetLaterLarge')])
         { el.onchange = null; el.onclick = null; }
