@@ -48,8 +48,9 @@ const dbg = /[?&]debug/.test(location.search) ? (() => {
 if (dbg) {
   const v = document.getElementById('video');
   for (const ev of ['play', 'playing', 'waiting', 'stalled', 'seeking', 'seeked', 'pause', 'ratechange'])
-    v.addEventListener(ev, () => dbg(`영상 ${ev} @${v.currentTime.toFixed(2)}`));
-  dbg('소리 세션 ' + (navigator.audioSession ? navigator.audioSession.type : '없음'));
+    v.addEventListener(ev, () => dbg(`영상 ${ev} @${v.currentTime.toFixed(2)}` +
+      (ev === 'play' || ev === 'playing' ? ` 소리끔=${v.muted} 음량=${v.volume} 소리엔진=${audioCtx ? audioCtx.state : '없음'} 세션=${navigator.audioSession ? navigator.audioSession.type : '없음'}` : '')));
+  for (const ev of ['play', 'pause']) $('au').addEventListener(ev, () => dbg(`음악 ${ev} 소리끔=${$('au').muted} 소리엔진=${audioCtx ? audioCtx.state : '없음'}`));
 }
 let au = $('au');
 let videoSession = null;
@@ -104,13 +105,11 @@ function savePrefs() {
 }
 
 let audioCtx = null, ctxGraphBound = false;
-// 소리 세션 종류는 페이지를 열 때 바로 정한다 — 첫 재생 순간에 바꾸면 아이폰이 소리 경로를 바꾸며 영상이 한 번 멈칫한다(10/28 사용자 "처음 재생하면 끊겼다 시작")
-try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
+// 10/27에 넣은 사파리 소리 세션 종류 고정(audioSession.type='playback')은 뺐다: 넣은 뒤로 아이폰에서 "노래가 안 나온다"는
+// 보고가 이어졌고(10/28 사용자 3회), 멈칫 개선 효과도 확인되지 않았다. 세션은 브라우저 기본값에 맡긴다.
 function ensureCtx() {
   if (!audioCtx) {
-    // 아이폰(10/27 사용자 "영상 시작할 때와 중간에 소리·화면 둘 다 끊김"): 사파리는 카운트음(WebAudio)과
-    // 영상 소리를 서로 다른 소리 종류로 다뤄, 카운트음이 켜지는 순간 소리 경로를 바꾸며 영상까지 멈칫한다.
-    // 둘 다 '재생' 종류로 고정해 전환을 없앤다(사파리 16.4+ 소리 세션 API, 없는 브라우저는 그대로).
+    // 아이폰: 카운트음(WebAudio)이 처음 켜지는 순간 소리 경로가 바뀌며 영상이 멈칫한다 — 그래서 아래 첫 터치에서 미리 켠다.
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (dbg) audioCtx.onstatechange = () => dbg('소리엔진 ' + audioCtx.state);
   }
@@ -124,6 +123,7 @@ function ensureCtx() {
 // 크롬 다시 앞으로 → 재생 시 노이즈). 그래서: 숨을 때 예약을 비우고, 돌아올 때 ctx를 깨우고 다시 비운 뒤
 // 스케줄러 자리를 재정렬한다. (학습 화면은 자체 스케줄러라 예약 비움만 하면 다음 틱에서 스스로 다시 맞춘다.)
 document.addEventListener('visibilitychange', () => {
+  if (dbg) dbg((document.hidden ? '화면 숨김' : '화면 복귀') + ' 소리엔진=' + (audioCtx ? audioCtx.state : '없음'));
   if (document.hidden) {
     if (videoSession) {
       clearTimeout(countInTimer); countInTimer = null;
@@ -133,7 +133,9 @@ document.addEventListener('visibilitychange', () => {
     // 영상은 위에서 멈췄으니 소리엔진도 우리가 먼저 멈춰 둔다(suspended) — 아이폰이 멈추면 'interrupted'로 굳어
     // 돌아와서 소리가 안 날 수 있다(10/28 사용자 "백그라운드 갔다 오면 노래 안 나와"). 음악 곡은 백그라운드에서도
     // 계속 재생되고, 음악이 소리엔진에 묶였으면(강세 'gain') 멈추면 곡까지 무음이 되므로 건드리지 않는다(Sol 검토 P1).
-    if (videoSession && !ctxGraphBound && audioCtx && audioCtx.state === 'running') audioCtx.suspend().catch(() => {});
+    // 멈춤이 끝나기 전에 화면이 돌아오면 멈춘 채 남는다(Sol 2차 검토) — 끝난 뒤 보이는 상태면 다시 깨운다.
+    if (videoSession && !ctxGraphBound && audioCtx && audioCtx.state === 'running')
+      audioCtx.suspend().then(() => { if (!document.hidden) ensureCtx(); }).catch(() => {});
     return;
   }
   if (audioCtx) ensureCtx();

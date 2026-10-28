@@ -458,7 +458,7 @@ test('CTX02: hiding suspends the engine only for a video with no bound media gra
   for (const [videoSession, ctxGraphBound, expect] of [[{}, false, 1], [null, false, 0], [{}, true, 0]]) {
     let handler = null;
     const ctx = { state: 'running', suspends: 0, suspend() { this.suspends++; this.state = 'suspended'; return Promise.resolve(); } };
-    const scope = { audioCtx: ctx, ctxGraphBound, countInTimer: null, learning: true, clearTimeout() {}, resync() {}, ensureCtx() {},
+    const scope = { audioCtx: ctx, ctxGraphBound, dbg: null, countInTimer: null, learning: true, clearTimeout() {}, resync() {}, ensureCtx() {},
       engine: { cancelPending() {} }, document: { hidden: true, addEventListener: (_, fn) => { handler = fn; } },
       videoSession: videoSession && { transport: { pause() {} }, resetGain() {} } };
     vm.createContext(scope); vm.runInContext(body, scope); handler();
