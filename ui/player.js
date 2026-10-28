@@ -934,8 +934,8 @@ function paintInfoStats() {
   const cell = (k, v, small) => `<div><div class="k">${k}</div><div class="v${small ? ' s' : ''}">${v}</div></div>`;
   $('infoStats').innerHTML =
     cell('BPM', bpm ?? '–') + cell('길이', fmtTime(map.song.duration)) +
-    cell('프레이즈', t.fullPhrases) + cell('에이트', t.fullEights) +
-    cell('카운트', lay.counts.length) + cell('프레이즈 길이', `에이트 ${map.phraseLen}개`, true);
+    cell('프레이즈', t.fullPhrases) + cell('8카운트', t.fullEights) +
+    cell('카운트', lay.counts.length) + cell('프레이즈 길이', `8카운트 ${map.phraseLen}개`, true);
 }
 function paintTruthInfo() {
   const t = map.truth;
@@ -1036,7 +1036,7 @@ $('fxUndoSection').onclick = () => {
   applyMap(withoutSectionOne(map, s[s.length - 1]), `${fmtTime(s[s.length - 1])}의 구간 보정을 취소했어요`);
 };
 for (const b of document.querySelectorAll('[data-plen]')) {
-  b.onclick = () => applyMap(withPhraseLen(map, +b.dataset.plen), `프레이즈 = 에이트 ${b.dataset.plen}개`);
+  b.onclick = () => applyMap(withPhraseLen(map, +b.dataset.plen), `프레이즈 = 8카운트 ${b.dataset.plen}개`);
 }
 $('fxHalf').onclick = () => applyMap(withManualTempo(map, 'half'), '반 빠르기로 해석');
 $('fxNormal').onclick = () => applyMap(withManualTempo(map, null), '기본 해석');
