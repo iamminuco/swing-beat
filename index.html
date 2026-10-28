@@ -330,9 +330,9 @@
 
 <section id="videoPanel" hidden aria-label="동영상과 음악">
   <div id="videoBox"><video id="video" playsinline preload="auto" hidden></video><button id="zoomReset" type="button" hidden>원래 크기</button></div>
-  <div id="startCountRow"><label>영상 첫 박 카운트 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label></div>
-  <div id="videoSoundRow"><label>들을 소리 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
-  <button id="chooseMusic">음악 파일 선택·바꾸기</button></div>
+  <div id="startCountRow"><label>첫 카운트 설정 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label></div>
+  <div id="videoSoundRow"><label>소리 선택 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
+  <button id="chooseMusic">음악 파일 선택</button></div>
   <input id="musicInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden>
   <div id="videoStatus" role="status"></div>
   <details id="videoAdjust"><summary>소리 맞춤 조정</summary>
@@ -536,6 +536,6 @@
   };
 })();
 </script>
-<script type="module" src="./ui/player.js?v=20261027-8"></script>
+<script type="module" src="./ui/player.js?v=20261028-1"></script>
 </body>
 </html>
