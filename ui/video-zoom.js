@@ -27,53 +27,79 @@ export const IDENTITY = Object.freeze({ s: 1, x: 0, y: 0 });
 export function attachVideoZoom(box, el, resetBtn) {
   let v = IDENTITY;
   const pts = new Map();
-  let pinch = null, lastTap = 0, lastTapAt = null, moved = false;
+  let pinch = null, lastTap = 0, lastTapAt = null, moved = false, tapStart = null;
   const size = () => ({ w: box.clientWidth || 1, h: box.clientHeight || 1 });
   const local = e => { const r = box.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   const apply = () => {
+    const { w, h } = size();
+    const fit = Math.min(w / (el.videoWidth || w), h / (el.videoHeight || h));
+    const cw = (el.videoWidth || w) * fit, ch = (el.videoHeight || h) * fit;
+    const axis = (p, length, content) => {
+      const offset = (length - content) / 2;
+      return content * v.s <= length
+        ? (length - content * v.s) / 2 - offset * v.s
+        : Math.min(-offset * v.s, Math.max(length - (offset + content) * v.s, p));
+    };
+    v = { s: v.s, x: axis(v.x, w, cw), y: axis(v.y, h, ch) };
     el.style.transformOrigin = '0 0';
     el.style.transform = v.s === 1 ? '' : `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
     if (resetBtn) resetBtn.hidden = v.s === 1;
   };
-  const reset = () => { v = IDENTITY; pinch = null; pts.clear(); apply(); };
+  const reset = () => {
+    v = IDENTITY; pinch = null; pts.clear();
+    lastTap = 0; lastTapAt = null; moved = false; tapStart = null; apply();
+  };
   const pair = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; };
 
   box.addEventListener('pointerdown', e => {
     if (resetBtn && resetBtn.contains(e.target)) return; // 버튼 탭은 확대 동작이 아니다(붙잡으면 버튼이 안 눌림)
     box.setPointerCapture?.(e.pointerId);
-    pts.set(e.pointerId, local(e));
-    moved = false;
+    const at = local(e);
+    pts.set(e.pointerId, at);
+    if (pts.size === 1) {
+      moved = false; tapStart = { ...at, time: e.timeStamp || Date.now() };
+    } else {
+      moved = true; tapStart = null; lastTap = 0; lastTapAt = null;
+    }
     if (pts.size === 2) { const p = pair(); pinch = { ...p, v }; }
   });
   box.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return;
     const prev = pts.get(e.pointerId), cur = local(e);
     pts.set(e.pointerId, cur);
+    if (tapStart && Math.hypot(cur.x - tapStart.x, cur.y - tapStart.y) > 8) moved = true;
     const { w, h } = size();
     if (pts.size >= 2 && pinch) {
       const p = pair();
       // 처음 두 손가락 상태에서 배율을 다시 계산하고, 가운데점이 움직인 만큼 같이 옮긴다
-      const z = zoomAt(pinch.v, pinch.v.s * p.d / pinch.d, pinch.mx, pinch.my, w, h);
-      v = panBy(z, p.mx - pinch.mx, p.my - pinch.my, w, h);
+      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinch.v.s * p.d / pinch.d));
+      const k = s / pinch.v.s;
+      v = clampView({ s,
+        x: p.mx - (pinch.mx - pinch.v.x) * k,
+        y: p.my - (pinch.my - pinch.v.y) * k }, w, h);
       moved = true; apply();
     } else if (pts.size === 1 && v.s > 1) {
       const dx = cur.x - prev.x, dy = cur.y - prev.y;
       if (Math.abs(dx) + Math.abs(dy) > 0) { v = panBy(v, dx, dy, w, h); apply(); }
-      if (Math.hypot(dx, dy) > 3) moved = true;
     }
   });
   const up = e => {
     if (!pts.has(e.pointerId)) return;
-    const at = pts.get(e.pointerId);
+    const at = local(e);
     pts.delete(e.pointerId);
     if (pts.size < 2) pinch = null;
-    if (pts.size === 0 && !moved && e.type === 'pointerup') {
+    if (pts.size === 0) {
       const now = e.timeStamp || Date.now();
-      if (now - lastTap < 320 && lastTapAt && Math.hypot(at.x - lastTapAt.x, at.y - lastTapAt.y) < 40) {
-        const { w, h } = size();
-        v = v.s > 1 ? IDENTITY : zoomAt(v, TAP_SCALE, at.x, at.y, w, h);
-        apply(); lastTap = 0; lastTapAt = null;
-      } else { lastTap = now; lastTapAt = at; }
+      const isTap = tapStart && !moved && e.type === 'pointerup'
+        && now - tapStart.time < 320 && Math.hypot(at.x - tapStart.x, at.y - tapStart.y) <= 8;
+      if (isTap) {
+        if (now - lastTap < 320 && lastTapAt && Math.hypot(at.x - lastTapAt.x, at.y - lastTapAt.y) < 40) {
+          const { w, h } = size();
+          v = v.s > 1 ? IDENTITY : zoomAt(v, TAP_SCALE, at.x, at.y, w, h);
+          apply(); lastTap = 0; lastTapAt = null;
+        } else { lastTap = now; lastTapAt = at; }
+      } else { lastTap = 0; lastTapAt = null; }
+      tapStart = null;
     }
   };
   box.addEventListener('pointerup', up);
