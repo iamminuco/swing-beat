@@ -444,18 +444,24 @@ test('R12: less than 30 seconds or half the shorter source cannot be auto matche
   assert.equal(estimateAlignment(video, music).matched, false);
 });
 
-// 10/28 사용자 "백그라운드 갔다 오면 노래 안 나와": 음악·영상을 소리엔진에 묶지 않았으면 굳은(interrupted) 소리엔진을 새로 만든다
-test('CTX01: unbound interrupted context is replaced; bound one is only resumed', () => {
-  const src = extract('function ensureCtx()', '// iOS:') + '\nthis.ensure = ensureCtx; this.get = () => audioCtx;';
-  class Fresh { constructor() { this.state = 'running'; } resume() { return Promise.resolve(); } }
-  const stuck = () => ({ state: 'interrupted', closed: 0, resumes: 0,
-    close() { this.closed++; this.state = 'closed'; return Promise.resolve(); },
-    resume() { this.resumes++; return Promise.resolve(); } });
-  const a = { audioCtx: stuck(), ctxGraphBound: false, dbg: null, window: { AudioContext: Fresh } };
-  const old = a.audioCtx; vm.createContext(a); vm.runInContext(src, a);
-  const got = a.ensure();
-  assert.equal(old.closed, 1); assert.ok(got instanceof Fresh); assert.equal(a.get(), got);
-  const b = { audioCtx: stuck(), ctxGraphBound: true, dbg: null, window: { AudioContext: Fresh } };
-  const kept = b.audioCtx; vm.createContext(b); vm.runInContext(src, b);
-  assert.equal(b.ensure(), kept); assert.equal(kept.closed, 0); assert.equal(kept.resumes, 1);
+// 10/28 사용자 "백그라운드 갔다 오면 노래 안 나와": 굳은(interrupted) 소리엔진은 같은 엔진을 되살린다(새로 만들면 청음 등이
+// 쥐고 있는 옛 시계로 예약이 어긋난다 — Sol 검토 P1). 숨을 때 멈추는 것은 영상이 있고 음악이 엔진에 안 묶였을 때만.
+test('CTX01: interrupted context is resumed in place, never replaced', () => {
+  const src = extract('function ensureCtx()', '// iOS:') + '\nthis.ensure = ensureCtx;';
+  const stuck = { state: 'interrupted', resumes: 0, resume() { this.resumes++; this.state = 'running'; return Promise.resolve(); } };
+  const scope = { audioCtx: stuck, dbg: null, window: { AudioContext: class {} } };
+  vm.createContext(scope); vm.runInContext(src, scope);
+  assert.equal(scope.ensure(), stuck); assert.equal(stuck.resumes, 1); assert.equal(stuck.state, 'running');
+});
+test('CTX02: hiding suspends the engine only for a video with no bound media graph', () => {
+  const body = player.slice(player.indexOf("document.addEventListener('visibilitychange'"), player.indexOf("document.addEventListener('pointerdown'"));
+  for (const [videoSession, ctxGraphBound, expect] of [[{}, false, 1], [null, false, 0], [{}, true, 0]]) {
+    let handler = null;
+    const ctx = { state: 'running', suspends: 0, suspend() { this.suspends++; this.state = 'suspended'; return Promise.resolve(); } };
+    const scope = { audioCtx: ctx, ctxGraphBound, countInTimer: null, learning: true, clearTimeout() {}, resync() {}, ensureCtx() {},
+      engine: { cancelPending() {} }, document: { hidden: true, addEventListener: (_, fn) => { handler = fn; } },
+      videoSession: videoSession && { transport: { pause() {} }, resetGain() {} } };
+    vm.createContext(scope); vm.runInContext(body, scope); handler();
+    assert.equal(ctx.suspends, expect, JSON.stringify({ video: !!videoSession, ctxGraphBound }));
+  }
 });

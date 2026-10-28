@@ -107,12 +107,6 @@ let audioCtx = null, ctxGraphBound = false;
 // 소리 세션 종류는 페이지를 열 때 바로 정한다 — 첫 재생 순간에 바꾸면 아이폰이 소리 경로를 바꾸며 영상이 한 번 멈칫한다(10/28 사용자 "처음 재생하면 끊겼다 시작")
 try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
 function ensureCtx() {
-  // 아이폰은 백그라운드·다른 소리 뒤 소리엔진을 'interrupted'로 굳혀 두기도 한다. 음악·영상을 소리엔진에 묶지 않았으면
-  // 새로 만들어 바꾼다(카운트음 엔진은 매번 ensureCtx로 받아 따라온다). 묶였으면 되살리기만 시도한다.
-  if (audioCtx && !ctxGraphBound && (audioCtx.state === 'interrupted' || audioCtx.state === 'closed')) {
-    try { audioCtx.close().catch(() => {}); } catch { /* already closed */ }
-    audioCtx = null;
-  }
   if (!audioCtx) {
     // 아이폰(10/27 사용자 "영상 시작할 때와 중간에 소리·화면 둘 다 끊김"): 사파리는 카운트음(WebAudio)과
     // 영상 소리를 서로 다른 소리 종류로 다뤄, 카운트음이 켜지는 순간 소리 경로를 바꾸며 영상까지 멈칫한다.
@@ -136,8 +130,10 @@ document.addEventListener('visibilitychange', () => {
       videoSession.transport.pause(); videoSession.resetGain();
     }
     engine.cancelPending();
-    // 숨을 때 우리가 먼저 멈춰 둔다(suspended) — 아이폰이 멈추면 'interrupted'로 굳어 돌아와서 소리가 안 날 수 있다
-    if (audioCtx && audioCtx.state === 'running') audioCtx.suspend().catch(() => {});
+    // 영상은 위에서 멈췄으니 소리엔진도 우리가 먼저 멈춰 둔다(suspended) — 아이폰이 멈추면 'interrupted'로 굳어
+    // 돌아와서 소리가 안 날 수 있다(10/28 사용자 "백그라운드 갔다 오면 노래 안 나와"). 음악 곡은 백그라운드에서도
+    // 계속 재생되고, 음악이 소리엔진에 묶였으면(강세 'gain') 멈추면 곡까지 무음이 되므로 건드리지 않는다(Sol 검토 P1).
+    if (videoSession && !ctxGraphBound && audioCtx && audioCtx.state === 'running') audioCtx.suspend().catch(() => {});
     return;
   }
   if (audioCtx) ensureCtx();
