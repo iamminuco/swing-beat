@@ -336,7 +336,7 @@ function replayEnv(t) {
     resume() { this.resumes++; this.state = 'running'; return Promise.resolve(); },
     createGain: () => ({ gain: { value: 1, cancelScheduledValues() {} }, connect() {} }),
     createMediaElementSource() { this.sources++; return { connect: g => g }; } };
-  const scope = { audioCtx: ctx, dbg: null };
+  const scope = { audioCtx: ctx, ctxGraphBound: true, dbg: null };
   vm.createContext(scope);
   vm.runInContext(extract('function ensureCtx()', '// iOS:') + '\nthis.ensure = ensureCtx;', scope);
   const make = () => {
@@ -442,4 +442,20 @@ test('R12: less than 30 seconds or half the shorter source cannot be auto matche
   const music = Float32Array.from({ length: 10000 }, () => { n = (1664525 * n + 1013904223) >>> 0; return n / 4294967296; });
   const video = new Float32Array(10000); video.set(music.subarray(0, 3000), 7000);
   assert.equal(estimateAlignment(video, music).matched, false);
+});
+
+// 10/28 사용자 "백그라운드 갔다 오면 노래 안 나와": 음악·영상을 소리엔진에 묶지 않았으면 굳은(interrupted) 소리엔진을 새로 만든다
+test('CTX01: unbound interrupted context is replaced; bound one is only resumed', () => {
+  const src = extract('function ensureCtx()', '// iOS:') + '\nthis.ensure = ensureCtx; this.get = () => audioCtx;';
+  class Fresh { constructor() { this.state = 'running'; } resume() { return Promise.resolve(); } }
+  const stuck = () => ({ state: 'interrupted', closed: 0, resumes: 0,
+    close() { this.closed++; this.state = 'closed'; return Promise.resolve(); },
+    resume() { this.resumes++; return Promise.resolve(); } });
+  const a = { audioCtx: stuck(), ctxGraphBound: false, dbg: null, window: { AudioContext: Fresh } };
+  const old = a.audioCtx; vm.createContext(a); vm.runInContext(src, a);
+  const got = a.ensure();
+  assert.equal(old.closed, 1); assert.ok(got instanceof Fresh); assert.equal(a.get(), got);
+  const b = { audioCtx: stuck(), ctxGraphBound: true, dbg: null, window: { AudioContext: Fresh } };
+  const kept = b.audioCtx; vm.createContext(b); vm.runInContext(src, b);
+  assert.equal(b.ensure(), kept); assert.equal(kept.closed, 0); assert.equal(kept.resumes, 1);
 });

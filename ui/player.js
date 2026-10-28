@@ -103,13 +103,20 @@ function savePrefs() {
   try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch { /* private mode */ }
 }
 
-let audioCtx = null;
+let audioCtx = null, ctxGraphBound = false;
+// 소리 세션 종류는 페이지를 열 때 바로 정한다 — 첫 재생 순간에 바꾸면 아이폰이 소리 경로를 바꾸며 영상이 한 번 멈칫한다(10/28 사용자 "처음 재생하면 끊겼다 시작")
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
 function ensureCtx() {
+  // 아이폰은 백그라운드·다른 소리 뒤 소리엔진을 'interrupted'로 굳혀 두기도 한다. 음악·영상을 소리엔진에 묶지 않았으면
+  // 새로 만들어 바꾼다(카운트음 엔진은 매번 ensureCtx로 받아 따라온다). 묶였으면 되살리기만 시도한다.
+  if (audioCtx && !ctxGraphBound && (audioCtx.state === 'interrupted' || audioCtx.state === 'closed')) {
+    try { audioCtx.close().catch(() => {}); } catch { /* already closed */ }
+    audioCtx = null;
+  }
   if (!audioCtx) {
     // 아이폰(10/27 사용자 "영상 시작할 때와 중간에 소리·화면 둘 다 끊김"): 사파리는 카운트음(WebAudio)과
     // 영상 소리를 서로 다른 소리 종류로 다뤄, 카운트음이 켜지는 순간 소리 경로를 바꾸며 영상까지 멈칫한다.
     // 둘 다 '재생' 종류로 고정해 전환을 없앤다(사파리 16.4+ 소리 세션 API, 없는 브라우저는 그대로).
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (dbg) audioCtx.onstatechange = () => dbg('소리엔진 ' + audioCtx.state);
   }
@@ -128,13 +135,17 @@ document.addEventListener('visibilitychange', () => {
       clearTimeout(countInTimer); countInTimer = null;
       videoSession.transport.pause(); videoSession.resetGain();
     }
-    engine.cancelPending(); return;
+    engine.cancelPending();
+    // 숨을 때 우리가 먼저 멈춰 둔다(suspended) — 아이폰이 멈추면 'interrupted'로 굳어 돌아와서 소리가 안 날 수 있다
+    if (audioCtx && audioCtx.state === 'running') audioCtx.suspend().catch(() => {});
+    return;
   }
   if (audioCtx) ensureCtx();
   engine.cancelPending();
   if (!learning) resync();
 });
-document.addEventListener('pointerdown', () => { if (audioCtx && (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted')) ensureCtx(); }, { passive: true });
+// 첫 터치에서 소리엔진을 미리 켠다 — 재생 버튼을 누른 그 순간에 처음 켜면 아이폰에서 영상이 한 번 멈칫한다
+document.addEventListener('pointerdown', () => { if (!audioCtx || audioCtx.state !== 'running') ensureCtx(); }, { passive: true, capture: true });
 
 // 짝수 강세의 정본(시안 §6 ①): 음악 자체를 짝수 박에서 +3.5dB 키운다.
 // 음악과 같은 출력 경로라 별도 지연 보정 없이 저절로 동기된다.
@@ -145,6 +156,7 @@ let accentState = { nextIdx: 0 };
 // 기본 경로(click 강세·강세 꺼짐)는 이 함수를 안 부르고 <audio>가 스피커로 바로 나간다.
 function ensureMediaGraph() {
   const ctx = ensureCtx();
+  ctxGraphBound = true;
   if (videoSession) return videoSession.ensureMediaGraph(ctx);
   if (!mediaSrc) {
     mediaSrc = ctx.createMediaElementSource(au);
