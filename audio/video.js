@@ -34,7 +34,9 @@ const graphs = new WeakMap();
 export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onChange, onClockChange, ensureCtx }) {
   checkVideoSize(blob);
   const v = $('video'), music = $('replacementAudio'), panel = $('videoPanel');
-  const sound = $('videoSound'), basis = $('videoBasis'), input = $('musicInput');
+  // 소리 고르기는 버튼 두 개(10/29): 아이폰은 선택 상자를 바꾼 직후를 "누름"으로 치지 않아 파일 고르기 창과 음악 재생이 막혔다.
+  const soundVideo = $('soundVideo'), soundMusic = $('soundMusic'), basis = $('videoBasis'), input = $('musicInput');
+  const paintSound = choice => { soundVideo.className = choice === 'video' ? 'on' : ''; soundMusic.className = choice === 'music' ? 'on' : ''; };
   let message = '', trimWarning = false;
   const status = text => { message = text; trimWarning = false; $('videoStatus').textContent = text; };
   const trimMessage = '음악이 영상을 못 따라와요. 빠르기를 조금 조정하고 있어요. 계속 어긋나면 동영상 소리로 바꿔 주세요.';
@@ -81,7 +83,7 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
   }
   const videoUrl = URL.createObjectURL(blob), listeners = [];
   panel.hidden = false; v.hidden = false; v.muted = false; music.muted = false; resetGain(); v.src = videoUrl; v.load();
-  sound.value = 'video'; basis.value = 'video'; basis.disabled = true;
+  paintSound('video'); basis.value = 'video'; basis.disabled = true;
   $('syncRatio').value = '1'; $('syncOffset').textContent = '0.00초';
   $('musicRange').hidden = true;
   $('applyRecommendation').hidden = true; $('recommendedFit').textContent = '';
@@ -302,19 +304,25 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
       $('recommendedFit').textContent = recommendation
         ? '추천값: 음악 시작 ' + recommendation.offset.toFixed(2) + '초, 빠르기 ' + recommendation.ratio.toFixed(3)
         : '추천값을 찾지 못했어요';
-      musicOn = true; sound.value = 'music'; basis.value = 'music'; basis.disabled = false;
+      musicOn = true; paintSound('music'); basis.value = 'music'; basis.disabled = false;
       status(found?.matched ? '자동으로 맞췄어요. 들으며 확인하고 필요하면 0.1초씩 조정해 주세요.'
         : '자동으로 못 맞췄어요. 추천값 적용 또는 0.1초·1초 조정으로 맞춰 주세요. 재생은 할 수 있어요.');
       changed();
     } catch (err) {
       if (!dead && seq !== request) return;
-      if (!dead && seq === request) { sound.value = musicOn ? 'music' : 'video'; status('음악 분석 실패: ' + (err?.message || err)); }
+      if (!dead && seq === request) { paintSound(musicOn ? 'music' : 'video'); status('음악 분석 실패: ' + (err?.message || err)); }
     } finally { if (alignmentController === controller) alignmentController = null; }
   }
-  sound.onchange = () => {
+  soundVideo.onclick = () => {
     ensureCtx();
-    if (sound.value === 'music' && !replacement) { sound.value = 'video'; input.click(); return; }
-    musicOn = sound.value === 'music'; changed();
+    if (!musicOn) return;
+    musicOn = false; paintSound('video'); changed();
+  };
+  soundMusic.onclick = () => {
+    ensureCtx();
+    if (!replacement) { input.click(); return; }
+    if (musicOn) return;
+    musicOn = true; paintSound('music'); changed();
   };
   $('chooseMusic').onclick = () => { ensureCtx(); input.click(); };
   input.onchange = e => {
@@ -363,7 +371,7 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
       for (const [el, event, fn] of listeners) el.removeEventListener(event, fn);
       for (const el of [v, music]) { el.muted = false; el.removeAttribute('src'); el.load(); }
       URL.revokeObjectURL(videoUrl); if (musicUrl) URL.revokeObjectURL(musicUrl);
-      for (const el of [sound, basis, input, $('chooseMusic'), $('offsetEarlier'), $('offsetLater'), $('syncRatio'), $('applyRecommendation'), $('offsetEarlierLarge'), $('offsetLaterLarge')])
+      for (const el of [soundVideo, soundMusic, basis, input, $('chooseMusic'), $('offsetEarlier'), $('offsetLater'), $('syncRatio'), $('applyRecommendation'), $('offsetEarlierLarge'), $('offsetLaterLarge')])
         { el.onchange = null; el.onclick = null; }
       panel.hidden = true; v.hidden = true;
     },

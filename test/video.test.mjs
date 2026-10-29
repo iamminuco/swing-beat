@@ -144,7 +144,7 @@ async function choose(env, name = 'music.wav') {
 }
 test('V08: reachable chooser, failed matching still plays, both sound choices and default map', async t => {
   const e = setup(t);
-  e.$('videoSound').value = 'music'; e.$('videoSound').onchange();
+  e.$('soundMusic').onclick();
   assert.equal(e.$('musicInput').clicked, true);
   await choose(e);
   assert.match(e.$('videoStatus').textContent, /자동으로 못 맞췄어요/);
@@ -154,7 +154,7 @@ test('V08: reachable chooser, failed matching still plays, both sound choices an
   assert.equal(e.$('video').paused, false);
   assert.equal(e.$('replacementAudio').paused, false);
   assert.equal(e.$('video').muted, true);
-  e.$('videoSound').value = 'video'; e.$('videoSound').onchange();
+  e.$('soundVideo').onclick();
   assert.equal(e.$('video').muted, false);
   assert.equal(e.$('replacementAudio').paused, true);
   e.$('videoBasis').value = 'video'; e.$('videoBasis').onchange();

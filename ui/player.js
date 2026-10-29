@@ -1151,8 +1151,9 @@ $('btnCalibrate').onclick = () => {
 // ── 속도 ─────────────────────────────────────────────────────────
 const PRESETS = [65, 70, 75, 80, 85, 90, 95, 100];
 $('speedPresets').innerHTML = PRESETS.map(v => `<button data-sp="${v}">${v}</button>`).join('');
+// 1%씩 −/+ 버튼(10/29 사용자 "버튼식으로 99, 98, 97 이렇게 1단위"). 누르고 있으면 계속 바뀌고, 손을 뗄 때 한 번만 저장한다.
 function setSpeed(pct, persist = true) {
-  pct = Math.max(50, Math.min(100, pct));
+  pct = Math.max(50, Math.min(100, Math.round(pct)));
   au.playbackRate = pct / 100;
   // 음정 유지(preservesPitch)는 느린 재생에서 브라우저 타임스트레치가 "지지직"거린다(사용자 실보고 9/10·9/11).
   // 박자 잡기 기본이 85%라 pct>=85 조건으론 시작하자마자 깨졌다 → 학습 중엔 음정유지를 아예 끈다
@@ -1160,7 +1161,7 @@ function setSpeed(pct, persist = true) {
   const keepPitch = !learning;
   au.preservesPitch = keepPitch;
   au.webkitPreservesPitch = keepPitch;
-  $('speed').value = pct;
+  $('speedDown').disabled = pct <= 50; $('speedUp').disabled = pct >= 100;
   $('speedBig').innerHTML = `${pct}<span>%</span>`;
   $('speedLabel').textContent = pct + '%';
   for (const b of $('speedPresets').children) b.classList.toggle('on', +b.dataset.sp === pct);
@@ -1168,7 +1169,21 @@ function setSpeed(pct, persist = true) {
 }
 $('btnSpeed').onclick = () => openSheet('speedSheet');
 $('spClose').onclick = closeSheets;
-$('speed').addEventListener('input', e => setSpeed(+e.target.value));
+function holdStep(btn, d) {
+  let wait = null, repeat = null, moved = false;
+  const step = () => { setSpeed(Math.round((au.playbackRate || 1) * 100) + d, false); moved = true; };
+  const stop = () => {
+    clearTimeout(wait); clearInterval(repeat); wait = repeat = null;
+    if (moved) { moved = false; setSpeed(Math.round((au.playbackRate || 1) * 100)); }
+  };
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault(); stop(); step();
+    wait = setTimeout(() => { repeat = setInterval(step, 90); }, 450);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) btn.addEventListener(ev, stop);
+}
+holdStep($('speedDown'), -1);
+holdStep($('speedUp'), 1);
 for (const b of $('speedPresets').children) b.onclick = () => setSpeed(+b.dataset.sp);
 
 window.addEventListener('resize', () => { if (lay) drawTimeline(); });

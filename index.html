@@ -176,6 +176,9 @@
   .stats .v.s { font-size:16px; }
   #speedBig { font-size:84px; font-weight:600; text-align:center; color:#fff; line-height:.9; }
   #speedBig span { font-size:34px; color:var(--t2); }
+  #speedStep { display:grid; grid-template-columns:76px 1fr 76px; gap:10px; align-items:center; margin-top:8px; }
+  #speedStep button { height:76px; font-size:44px; font-weight:600; touch-action:manipulation; user-select:none; -webkit-user-select:none; }
+  #speedStep button:disabled { opacity:.3; }
   #speedPresets { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px; }
   #speedPresets button { height:56px; font-size:22px; font-weight:600; }
   #speedPresets button.on { background:var(--yellow); color:var(--bg); border-color:var(--yellow); }
@@ -261,7 +264,9 @@
   #videoBox { overflow:hidden; touch-action:none; }
   #zoomReset { position:absolute; right:8px; top:8px; z-index:2; padding:6px 10px; font-size:12px;
                background:#000a; color:#fff; border:1px solid #fff6; border-radius:8px; }
-  body.withVideo #videoSoundRow { flex:none; display:flex; align-items:center; gap:6px; }
+  body.withVideo #videoSoundRow { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:12px; }
+  #videoSoundRow button { padding:4px 8px; font-size:13px; }
+  #videoSoundRow button.on { background:var(--yellow); color:var(--bg); border-color:var(--yellow); }
   body.withVideo #videoSoundRow button { flex:none; }
   #startCountRow { display:flex; align-items:center; gap:8px; font-size:12px; }
   #startCountRow span { color:var(--t3); font-size:11px; }
@@ -331,7 +336,7 @@
 <section id="videoPanel" hidden aria-label="동영상과 음악">
   <div id="videoBox"><video id="video" playsinline preload="auto" hidden></video><button id="zoomReset" type="button" hidden>원래 크기</button></div>
   <div id="startCountRow"><label>첫 카운트 설정 <select id="startCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label></div>
-  <div id="videoSoundRow"><label>소리 선택 <select id="videoSound"><option value="video">동영상 소리</option><option value="music">내 음악 파일로 듣기</option></select></label>
+  <div id="videoSoundRow"><span>소리 선택</span><button id="soundVideo" type="button" class="on">동영상 소리</button><button id="soundMusic" type="button">내 음악 파일</button>
   <button id="chooseMusic">음악 파일 선택</button></div>
   <input id="musicInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden>
   <div id="videoStatus" role="status"></div>
@@ -463,11 +468,10 @@
 <!-- 속도 시트 -->
 <div class="sheet" id="speedSheet" hidden>
   <h3>재생 속도 <span style="font-size:12px; color:var(--t2); font-weight:400">음정은 그대로</span></h3>
-  <div id="speedBig" class="num">100<span>%</span></div>
-  <div style="display:grid; grid-template-columns:36px 1fr 36px; gap:12px; align-items:center; margin-top:14px">
-    <div class="num" style="font-size:14px; color:var(--t2)">50</div>
-    <input type="range" id="speed" min="50" max="100" step="5" value="100">
-    <div class="num" style="font-size:14px; color:var(--t2); text-align:right">100</div>
+  <div id="speedStep">
+    <button id="speedDown" type="button" aria-label="1% 느리게">−</button>
+    <div id="speedBig" class="num">100<span>%</span></div>
+    <button id="speedUp" type="button" aria-label="1% 빠르게">+</button>
   </div>
   <div id="speedPresets" class="num"></div>
   <div class="row" style="margin-top:14px"><button class="primary" id="spClose" style="height:56px">닫기</button></div>
@@ -536,6 +540,6 @@
   };
 })();
 </script>
-<script type="module" src="./ui/player.js?v=20261028-6"></script>
+<script type="module" src="./ui/player.js?v=20261029-1"></script>
 </body>
 </html>
