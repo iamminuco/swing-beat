@@ -142,6 +142,11 @@ document.addEventListener('visibilitychange', () => {
   }
   if (audioCtx) ensureCtx();
   engine.cancelPending();
+  // 고른 반복 구간: 숨어 있는 동안 음악은 계속 흘러 구간을 지나쳤을 수 있다 — 돌아오면 구간 처음으로(구간을 풀지 않는다)
+  if (loopOn && loopSel && loopCur && !learning) {
+    const t = au.currentTime;
+    if (t < loopCur.start - 0.05 || t >= loopCur.end - 0.03) au.currentTime = loopCur.start;
+  }
   if (!learning) resync();
 });
 // 첫 터치에서 소리엔진을 미리 켠다 — 재생 버튼을 누른 그 순간에 처음 켜면 아이폰에서 영상이 한 번 멈칫한다
@@ -728,7 +733,9 @@ function eightList() {
   }
   return [...out.values()].sort((x, y) => x.n - y.n);
 }
-const eightName = e => `프레이즈 ${e.phrase}·8카운트 ${((e.n - 1) % map.phraseLen) + 1}`;
+// 한 프레이즈의 8카운트 수 — 영상에서 음악 파일 박 기준이면 그 음악의 값(배치가 phraseLen을 들고 온다)
+const phraseLenNow = () => lay?.phraseLen ?? map.phraseLen;
+const eightName = e => `프레이즈 ${e.phrase}·8카운트 ${((e.n - 1) % phraseLenNow()) + 1}`;
 function selRange(sel) {
   const list = eightList(), a = list.find(e => e.n === sel.a), b = list.find(e => e.n === sel.b);
   if (!a || !b) return null;
@@ -736,9 +743,11 @@ function selRange(sel) {
 }
 
 function updateLoop() {
+  // 박 보정·빠르기 변경으로 8카운트 번호가 사라졌으면 고른 구간을 푼다(자동 구간으로)
+  if (loopSel && !selRange(loopSel)) loopSel = null;
   const next = !loopOn ? null
     : (loopSel && selRange(loopSel)) || loopRange(map.markers, au.currentTime, currentPhrase(), map.song.duration);
-  const changed = (next?.start !== loopCur?.start) || (next?.end !== loopCur?.end);
+  const changed = (next?.start !== loopCur?.start) || (next?.end !== loopCur?.end) || (next?.label !== loopCur?.label);
   loopCur = next;
   if (changed) {
     // 표시(깃발)로 만든 구간은 이름이 없으니 시각으로 보여준다 — 「반복 · 0:41–1:12」
@@ -906,12 +915,12 @@ let loopPick = null; // 창에서 고르는 중 {a, b} — b가 null이면 끝�
 function openLoopSheet() {
   if (!lay) return;
   const list = eightList();
-  if (!list.length) { toast('박을 아직 못 찾아서 구간을 고를 수 없어요'); return; }
+  if (!list.length) { setLoop(true); toast(loopCur ? '반복: ' + $('loopLabel').textContent.replace(/^반복 · /, '') : '반복을 켰어요'); return; } // 박이 없으면 예전처럼 표시·전체 기준
   const byPhrase = new Map();
   for (const e of list) { if (!byPhrase.has(e.phrase)) byPhrase.set(e.phrase, []); byPhrase.get(e.phrase).push(e); }
   $('loopGrid').innerHTML = [...byPhrase].map(([p, es]) =>
-    `<div class="lgRow" style="grid-template-columns:76px repeat(${map.phraseLen}, 1fr)"><span>프레이즈 ${p}</span>`
-    + es.map(e => `<button type="button" data-e="${e.n}">${((e.n - 1) % map.phraseLen) + 1}</button>`).join('') + '</div>').join('');
+    `<div class="lgRow" style="grid-template-columns:76px repeat(${phraseLenNow()}, 1fr)"><span>프레이즈 ${p}</span>`
+    + es.map(e => `<button type="button" data-e="${e.n}">${((e.n - 1) % phraseLenNow()) + 1}</button>`).join('') + '</div>').join('');
   if (loopSel) loopPick = { ...loopSel };
   else {
     const t = au.currentTime, cur = list.find(e => t < e.end) || list[list.length - 1];
