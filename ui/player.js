@@ -90,6 +90,7 @@ const analyzing = new Set();   // 뒤에서 분석 중인 파일 이름(목록�
 const selected = new Set();    // 목록에서 고른 곡 키
 let queue = [], queueIdx = -1; // 연속 재생
 let loopCur = null;            // 지금 적용 중인 반복 구간 {start,end,label}
+let loopSel = null;            // 사용자가 고른 8카운트 구간 {a,b} = 8카운트 번호(양끝 포함). 없으면 표시·프레이즈 기준
 let learning = false;          // 학습 오버레이(게임·청음·두드려 재기)가 떠 있는 동안 true
 let openSeq = 0;               // 곡 열기 요청 번호 — 늦게 끝난 열기가 최신 선택을 덮지 않게
 let countInTimer = null;       // 카운트인 뒤 재생 예약
@@ -294,6 +295,7 @@ function mountSong(m, pcm, blob, temporary = false) {
   // 저장소가 정본이다: 파일 저장(saveAudio)을 기다리는 사이 사용자가 같은 곡에 마커를 찍었으면 그게 최신이고,
   // 여기서 옛 m을 올리면 다음 편집 저장이 그 마커를 지운다(codex 3차 P1, 기존 경합).
   map = temporary ? m : (loadSongMap(m.song) ?? m);
+  loopSel = null; // 고른 반복 구간은 그 곡에만
   undoStack.length = 0; // 다른 곡의 보정을 이 곡에 되돌리지 않는다
   samples = pcm;
   if (videoSession) { videoSession.dispose(); videoSession = null; au = $('au'); }
@@ -563,7 +565,10 @@ function drawTimeline() {
     g.lineWidth = 2;
     rows.forEach((row, r) => {
       if (row.t1 <= loopCur.start + 1e-6 || row.t0 >= loopCur.end - 1e-6) return;
-      g.strokeRect(1, r * rowH + 1, width - 2, rowH - 2);
+      // 고른 8카운트만 감싼다(줄 일부일 수 있다)
+      const span = row.t1 - row.t0;
+      const x0 = Math.max(1, ((loopCur.start - row.t0) / span) * width), x1 = Math.min(width - 1, ((loopCur.end - row.t0) / span) * width);
+      g.strokeRect(x0, r * rowH + 1, x1 - x0, rowH - 2);
     });
     g.lineWidth = 1;
   }
@@ -712,13 +717,32 @@ function currentPhrase() {
   return row && row.phrase !== null ? { start: row.t0, end: row.t1, label: '프레이즈 ' + row.phrase } : null;
 }
 
+// 8카운트 목록(번호·프레이즈·시작·끝). 영상 앞부분을 거꾸로 센 박(프레이즈 0)은 뺀다.
+function eightList() {
+  const out = new Map();
+  for (const c of lay ? lay.counts : []) {
+    if (!c.phrase || !(c.eight > 0)) continue;
+    const e = out.get(c.eight);
+    if (!e) out.set(c.eight, { n: c.eight, phrase: c.phrase, start: c.time, end: c.end });
+    else e.end = Math.max(e.end, c.end);
+  }
+  return [...out.values()].sort((x, y) => x.n - y.n);
+}
+const eightName = e => `프레이즈 ${e.phrase}·8카운트 ${((e.n - 1) % map.phraseLen) + 1}`;
+function selRange(sel) {
+  const list = eightList(), a = list.find(e => e.n === sel.a), b = list.find(e => e.n === sel.b);
+  if (!a || !b) return null;
+  return { start: a.start, end: b.end, label: a === b ? eightName(a) : `${eightName(a)} ~ ${eightName(b)}`, custom: true };
+}
+
 function updateLoop() {
-  const next = loopOn ? loopRange(map.markers, au.currentTime, currentPhrase(), map.song.duration) : null;
+  const next = !loopOn ? null
+    : (loopSel && selRange(loopSel)) || loopRange(map.markers, au.currentTime, currentPhrase(), map.song.duration);
   const changed = (next?.start !== loopCur?.start) || (next?.end !== loopCur?.end);
   loopCur = next;
   if (changed) {
     // 표시(깃발)로 만든 구간은 이름이 없으니 시각으로 보여준다 — 「반복 · 0:41–1:12」
-    const usesMarkers = loopCur && map.markers.some(m => Math.abs(m.time - loopCur.start) < 0.05 || Math.abs(m.time - loopCur.end) < 0.05);
+    const usesMarkers = loopCur && !loopCur.custom && map.markers.some(m => Math.abs(m.time - loopCur.start) < 0.05 || Math.abs(m.time - loopCur.end) < 0.05);
     const label = loopCur ? (usesMarkers ? `${fmtTime(loopCur.start)}–${fmtTime(loopCur.end)}` : loopCur.label) : '';
     $('loopLabel').textContent = loopOn && loopCur ? '반복 · ' + label : '';
     drawTimeline();
@@ -736,7 +760,8 @@ setInterval(() => {
       return;
     }
     if (loopCur && (t < loopCur.start - 0.05 || t >= loopCur.end + 0.6)) {
-      updateLoop(); // 구간 밖으로 옮겨 갔다(탐색) — 새 자리 기준으로 다시 잡는다
+      loopSel = null; // 고른 구간 밖으로 옮겨 갔다(탐색) — 새 자리 기준으로 다시 잡는다
+      updateLoop();
     }
   }
   const now = t, horizon = now + 0.15 * rate;
@@ -866,16 +891,73 @@ $('btnPrev').onclick = () => jump(-1);
 $('btnNext').onclick = () => jump(1);
 function setLoop(on) {
   loopOn = on;
+  if (!on) loopSel = null;
   $('btnLoop').classList.toggle('on', loopOn);
   updateLoop();
 }
+// 반복: 켤 때 구간 고르기 창을 연다(10/29 사용자 "8카운트 하나 찍고 다음 8카운트까지 범위 지정").
+// 시작 8카운트 → 끝 8카운트 순서로 누르고 「이 구간 반복」. 처음엔 지금 프레이즈가 골라져 있다.
 $('btnLoop').onclick = () => {
-  setLoop(!loopOn);
-  if (!loopOn) { toast('반복을 껐어요'); return; }
-  const usesMarkers = loopCur && map.markers.some(m => Math.abs(m.time - loopCur.start) < 0.05 || Math.abs(m.time - loopCur.end) < 0.05);
-  toast(loopCur
-    ? (usesMarkers ? `반복: ${fmtTime(loopCur.start)}–${fmtTime(loopCur.end)}` : `반복: ${loopCur.label} · 「추가」로 표시 두 개를 찍으면 그 사이를 돌아요`)
-    : '반복을 켰어요 · 「추가」로 표시 두 개를 찍으면 그 사이를 돌아요');
+  if (loopOn) { setLoop(false); toast('반복을 껐어요'); return; }
+  openLoopSheet();
+};
+$('loopLabel').onclick = () => { if (loopOn) openLoopSheet(); };
+let loopPick = null; // 창에서 고르는 중 {a, b} — b가 null이면 끝을 아직 안 고름
+function openLoopSheet() {
+  if (!lay) return;
+  const list = eightList();
+  if (!list.length) { toast('박을 아직 못 찾아서 구간을 고를 수 없어요'); return; }
+  const byPhrase = new Map();
+  for (const e of list) { if (!byPhrase.has(e.phrase)) byPhrase.set(e.phrase, []); byPhrase.get(e.phrase).push(e); }
+  $('loopGrid').innerHTML = [...byPhrase].map(([p, es]) =>
+    `<div class="lgRow" style="grid-template-columns:76px repeat(${map.phraseLen}, 1fr)"><span>프레이즈 ${p}</span>`
+    + es.map(e => `<button type="button" data-e="${e.n}">${((e.n - 1) % map.phraseLen) + 1}</button>`).join('') + '</div>').join('');
+  if (loopSel) loopPick = { ...loopSel };
+  else {
+    const t = au.currentTime, cur = list.find(e => t < e.end) || list[list.length - 1];
+    const same = list.filter(e => e.phrase === cur.phrase);
+    loopPick = { a: same[0].n, b: same[same.length - 1].n };
+  }
+  $('loopMarkers').hidden = !map.markers.length;
+  paintLoopPick();
+  openSheet('loopSheet');
+  $('loopGrid').querySelector('button.end')?.scrollIntoView({ block: 'center' });
+}
+function paintLoopPick() {
+  const lo = Math.min(loopPick.a, loopPick.b ?? loopPick.a), hi = Math.max(loopPick.a, loopPick.b ?? loopPick.a);
+  for (const b of $('loopGrid').querySelectorAll('button[data-e]')) {
+    const n = +b.dataset.e;
+    b.classList.toggle('in', n >= lo && n <= hi);
+    b.classList.toggle('end', n === lo || n === hi);
+  }
+  const r = selRange({ a: lo, b: hi });
+  $('loopPickLabel').textContent = loopPick.b == null
+    ? (r ? r.label + ' — 끝 8카운트를 누르거나 이대로 반복' : '')
+    : (r ? r.label : '');
+}
+$('loopGrid').onclick = e => {
+  const b = e.target.closest('button[data-e]');
+  if (!b) return;
+  const n = +b.dataset.e;
+  loopPick = loopPick.b != null ? { a: n, b: null } : { a: Math.min(loopPick.a, n), b: Math.max(loopPick.a, n) };
+  paintLoopPick();
+};
+$('loopApply').onclick = () => {
+  const sel = { a: Math.min(loopPick.a, loopPick.b ?? loopPick.a), b: Math.max(loopPick.a, loopPick.b ?? loopPick.a) };
+  const r = selRange(sel);
+  if (!r) { toast('구간을 다시 골라 주세요'); return; }
+  closeSheets();
+  loopSel = sel;
+  setLoop(true);
+  au.currentTime = r.start;
+  resync();
+  toast('반복: ' + r.label);
+};
+$('loopMarkers').onclick = () => {
+  closeSheets();
+  loopSel = null;
+  setLoop(true);
+  toast(loopCur ? '반복: ' + $('loopLabel').textContent.replace(/^반복 · /, '') : '반복을 켰어요');
 };
 $('btnClick').onclick = () => {
   setClick(!clickOn);
@@ -945,7 +1027,7 @@ $('btnFlagDel').onclick = () => {
 };
 
 // ── 시트 공통 ────────────────────────────────────────────────────
-const SHEETS = ['infoSheet', 'speedSheet', 'settingsSheet'];
+const SHEETS = ['infoSheet', 'speedSheet', 'settingsSheet', 'loopSheet'];
 function openSheet(id) {
   for (const s of SHEETS) $(s).hidden = s !== id;
   $('dim').hidden = false;
