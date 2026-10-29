@@ -1169,19 +1169,34 @@ function setSpeed(pct, persist = true) {
 }
 $('btnSpeed').onclick = () => openSheet('speedSheet');
 $('spClose').onclick = closeSheets;
-function holdStep(btn, d) {
-  let wait = null, repeat = null, moved = false;
-  const step = () => { setSpeed(Math.round((au.playbackRate || 1) * 100) + d, false); moved = true; };
-  const stop = () => {
-    clearTimeout(wait); clearInterval(repeat); wait = repeat = null;
-    if (moved) { moved = false; setSpeed(Math.round((au.playbackRate || 1) * 100)); }
-  };
-  btn.addEventListener('pointerdown', e => {
-    e.preventDefault(); stop(); step();
-    wait = setTimeout(() => { repeat = setInterval(step, 90); }, 450);
-  });
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) btn.addEventListener(ev, stop);
+// 저장(되돌리기 한 칸·다시 그리기)은 마지막 누름 0.6초 뒤 한 번만 — 1%씩 20번 눌러도 되돌리기 기록이 밀리지 않게.
+// 끝(50·100)에 닿으면 버튼이 잠겨 손을 뗀 신호가 안 올 수 있으므로 그 자리에서 반복을 멈춘다.
+let speedSave = null, speedHold = null;
+function stopSpeedHold() {
+  if (!speedHold) return;
+  clearTimeout(speedHold.wait); clearInterval(speedHold.repeat); speedHold = null;
+  clearTimeout(speedSave);
+  speedSave = setTimeout(() => { speedSave = null; setSpeed(Math.round((au.playbackRate || 1) * 100)); }, 600);
 }
+function holdStep(btn, d) {
+  const step = () => {
+    const pct = Math.round((au.playbackRate || 1) * 100) + d;
+    setSpeed(pct, false);
+    if (pct <= 50 || pct >= 100) stopSpeedHold();
+  };
+  const start = () => {
+    stopSpeedHold(); clearTimeout(speedSave);
+    speedHold = { wait: null, repeat: null };
+    const hold = speedHold;
+    step();
+    if (speedHold === hold) hold.wait = setTimeout(() => { hold.repeat = setInterval(step, 90); }, 450);
+  };
+  btn.addEventListener('pointerdown', e => { e.preventDefault(); start(); });
+  // 키보드·보이스오버 누름(detail 0)은 한 칸만
+  btn.addEventListener('click', e => { if (e.detail === 0) { start(); stopSpeedHold(); } });
+}
+for (const ev of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(ev, stopSpeedHold);
+document.addEventListener('visibilitychange', stopSpeedHold);
 holdStep($('speedDown'), -1);
 holdStep($('speedUp'), 1);
 for (const b of $('speedPresets').children) b.onclick = () => setSpeed(+b.dataset.sp);
