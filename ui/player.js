@@ -77,6 +77,7 @@ function mediaBlob(m) {
 }
 
 let map = null, lay = null, samples = null, rows = [];
+let speedSave = null, speedHold = null; // 속도 −/+ 누르는 중·저장 대기 (아래 「속도」)
 let clickOn = false, countMode = 1, loopOn = false;
 let clickState = { nextIdx: 0 };
 let lag = { screen: 0, click: 0 };
@@ -449,7 +450,8 @@ function rebuild() {
   paintCells(null);
   paintTrust();
   $('btnAccent').classList.toggle('on', map.accent === 'EVEN');
-  setSpeed(Math.round(map.rate * 100), false);
+  // 속도를 누르는 중이거나 저장 대기 중이면 지금 속도를 지킨다 — 그 사이 음악 분석이 끝나 다시 그려도 옛 속도로 안 돌아간다
+  if (!speedHold && !speedSave) setSpeed(Math.round(map.rate * 100), false);
   if (!$('infoSheet').hidden) paintInfoStats();
   $('fxUndoSection').disabled = map.corrections.sectionOnes.length === 0;
   paintUndo();
@@ -1171,7 +1173,6 @@ $('btnSpeed').onclick = () => openSheet('speedSheet');
 $('spClose').onclick = closeSheets;
 // 저장(되돌리기 한 칸·다시 그리기)은 마지막 누름 0.6초 뒤 한 번만 — 1%씩 20번 눌러도 되돌리기 기록이 밀리지 않게.
 // 끝(50·100)에 닿으면 버튼이 잠겨 손을 뗀 신호가 안 올 수 있으므로 그 자리에서 반복을 멈춘다.
-let speedSave = null, speedHold = null;
 function stopSpeedHold() {
   if (!speedHold) return;
   clearTimeout(speedHold.wait); clearInterval(speedHold.repeat); speedHold = null;
