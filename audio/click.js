@@ -21,15 +21,14 @@ export function createClickEngine(getCtx) {
   // 예약했지만 아직 안 울린 노드. 정지·탐색·학습 종료 때 cancelPending()으로
   // 지운다 — 안 그러면 카운트음 지연 300ms일 때 이전 구간의 클릭이 뒤늦게 들린다.
   const live = new Set();
-  function track(osc, gain) {
-    const node = { osc, gain };
+  function track(osc, gain, ctx) {
+    const node = { osc, gain, ctx };
     live.add(node);
     osc.onended = () => { live.delete(node); try { gain.disconnect(); } catch { /* already */ } };
   }
   function cancelPending() {
-    const ctx = getCtx();
-    const now = ctx.currentTime;
-    for (const { osc, gain } of live) {
+    for (const { osc, gain, ctx } of live) {
+      const now = ctx.currentTime;
       // 즉시 하드컷(osc.stop(now))은 톡 하고 팝이 난다 — 3ms 페이드로 눕히고 끈다.
       try {
         gain.gain.cancelScheduledValues(now);
@@ -62,7 +61,7 @@ export function createClickEngine(getCtx) {
     osc.connect(gain).connect(bus());
     osc.start(when);
     osc.stop(when + 0.05);
-    track(osc, gain);
+    track(osc, gain, ctx);
   }
 
   // Schedule upcoming counts a little ahead of the audio clock. state carries
@@ -114,7 +113,7 @@ export function createClickEngine(getCtx) {
     osc.connect(gain).connect(bus());
     osc.start(when);
     osc.stop(when + 0.16);
-    track(osc, gain);
+    track(osc, gain, ctx);
   }
 
   // 짝수 강세 방식 ②(설계 §6): 카운트음과 다른 음색(삼각파·짧은 우드블록 느낌)으로
@@ -133,7 +132,7 @@ export function createClickEngine(getCtx) {
     osc.connect(gain).connect(bus());
     osc.start(when);
     osc.stop(when + 0.06);
-    track(osc, gain);
+    track(osc, gain, ctx);
   }
 
   return { schedule, countIn, clickAt: click, kick, accentClick, cancelPending };

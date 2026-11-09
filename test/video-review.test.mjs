@@ -465,3 +465,223 @@ test('CTX02: hiding suspends the engine only for a video with no bound media gra
     assert.equal(ctx.suspends, expect, JSON.stringify({ video: !!videoSession, ctxGraphBound }));
   }
 });
+import { createClickEngine } from '../audio/click.js';
+import { primeMedia } from '../audio/video.js';
+
+test('IOS01 cleanup never creates or resumes an audio context', () => {
+  let calls = 0;
+  const e = createClickEngine(() => { calls++; return { currentTime: 0 }; });
+  e.cancelPending();
+  assert.equal(calls, 0, 'empty cleanup must not activate audio');
+});
+
+test('IOS02 cleanup uses each scheduled node clock and survives node failures', () => {
+  let calls = 0, stopped = 0;
+  const param = { value: 1, setValueAtTime() {}, linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {}, cancelScheduledValues() { throw Error('gone'); } };
+  const ctx = { state: 'running', currentTime: 10, destination: {},
+    createGain: () => ({ gain: { ...param }, connect() {}, disconnect() {} }),
+    createOscillator: () => ({ frequency: { ...param }, connect: g => g, start() {}, stop() { stopped++; } }) };
+  const e = createClickEngine(() => { calls++; return ctx; });
+  e.clickAt(11, 1, .5); e.kick(12, .5); e.accentClick(13, .5);
+  const before = calls; ctx.state = 'interrupted';
+  e.cancelPending();
+  assert.equal(calls, before, 'cancellation must not call the activating getter');
+  assert.equal(stopped, 6);
+  e.cancelPending(); assert.equal(stopped, 6);
+});
+
+test('IOS03 muted warmup does not stand in for an audible gesture request', () => {
+  const seen = [];
+  const el = { paused: true, muted: true, currentTime: 7,
+    play() { seen.push(this.muted); return Promise.reject(Error('aborted')); },
+    pause() { this.paused = true; } };
+  primeMedia(el);
+  assert.deepEqual(seen, [false], 'ask for audible permission inside the tap');
+  assert.equal(el.muted, true); assert.equal(el.currentTime, 7);
+});
+
+function iosEnv(t) {
+  const previous = globalThis.document;
+  const doc = new EventTarget(); doc.hidden = false; globalThis.document = doc;
+  const v = new ReplayMedia(), m = new ReplayMedia();
+  for (const el of [v, m]) {
+    el.loads = 0; el.requests = []; el.seeking = false;
+    el.load = function () { this.loads++; this.currentTime = 0; this.playbackRate = 1; };
+    el.play = function () { this.requests.push({ muted: this.muted, tap: this.inTap === true });
+      this.paused = false; return Promise.resolve(); };
+  }
+  const nodes = { video: v, replacementAudio: m }, $ = id => nodes[id] ||= new El();
+  const s = createVideoSession({ $, blob: new Blob(['v']), pcm: new Float32Array(1),
+    videoMap: { song: { duration: 60 } }, ensureCtx: () => ({}), onChange() {}, onClockChange() {},
+    analyzeMusic: async () => ({ pcm: new Float32Array(1), m: { song: { duration: 60 } } }) });
+  t.after(() => { s.dispose(); globalThis.document = previous; });
+  return { $, s, v, m, doc, choose: () => $('musicInput').onchange({ target: { files: [new Blob(['m'])], value: '' } }) };
+}
+
+test('IOS04 active replacement requests audible play in tap even while video seeks', async t => {
+  const e = iosEnv(t); await e.choose(); e.v.currentTime = 4; e.v.seeking = true;
+  e.m.requests.length = 0; e.v.inTap = e.m.inTap = true;
+  const pending = e.s.transport.play(); e.v.inTap = e.m.inTap = false;
+  assert.deepEqual(e.m.requests, [{ muted: false, tap: true }]);
+  assert.equal(e.m.paused, false, 'do not abort the actual start with warmup pause');
+  await pending;
+});
+
+test('IOS05 background recovery reloads once in tap and restores position and rate', async t => {
+  const e = iosEnv(t); await e.choose();
+  e.v.currentTime = 12; e.v.playbackRate = .85;
+  e.doc.hidden = true; e.doc.dispatchEvent(new Event('visibilitychange'));
+  e.s.transport.pause();
+  e.doc.hidden = false; e.doc.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(e.v.paused, true);
+  const vl = e.v.loads, ml = e.m.loads;
+  e.v.inTap = e.m.inTap = true; await e.s.transport.play();
+  assert.equal(e.v.loads, vl + 1, 'foreground tap must reset the stale media resource');
+  assert.equal(e.m.loads, ml + 1);
+  assert.equal(e.v.currentTime, 12); assert.equal(e.v.playbackRate, .85);
+  assert.equal(e.v.muted, true); assert.equal(e.m.muted, false);
+  assert.equal(e.m.currentTime, 12); assert.equal(e.m.playbackRate, .85);
+  e.s.transport.pause(); await e.s.transport.play();
+  assert.equal(e.v.loads, vl + 1); assert.equal(e.m.loads, ml + 1);
+});
+
+test('IOS06 partial reload failure rejects, preserves selection and permits retry', async t => {
+  const e = iosEnv(t); await e.choose(); const src = e.m.src;
+  e.v.currentTime = 9; e.v.playbackRate = .75;
+  e.doc.hidden = true; e.doc.dispatchEvent(new Event('visibilitychange')); e.s.transport.pause();
+  e.doc.hidden = false;
+  const load = e.m.load; e.m.load = () => { throw Error('reload failed'); };
+  await assert.rejects(e.s.transport.play(), /reload failed/);
+  assert.equal(e.v.paused, true); assert.equal(e.m.src, src); assert.equal(e.s.usesMusicMap, true);
+  e.m.load = load; await e.s.transport.play();
+  assert.equal(e.v.currentTime, 9); assert.equal(e.v.playbackRate, .75); assert.equal(e.m.paused, false);
+});
+
+test('IOS07 foreground recovery normalizes an invalid position without replacing the context', async t => {
+  const e = iosEnv(t); e.v.currentTime = NaN;
+  e.doc.hidden = true; e.doc.dispatchEvent(new Event('visibilitychange')); e.s.transport.pause(); e.doc.hidden = false;
+  await e.s.transport.play();
+  assert.equal(e.v.currentTime, 0);
+});
+
+test('IOS08 optional resume throwing cannot abort media playback or replace the clock', () => {
+  const ctx = { state: 'interrupted', resume() { throw Error('audio device'); } };
+  const scope = { audioCtx: ctx, dbg: null };
+  vm.createContext(scope);
+  vm.runInContext(extract('function ensureCtx()', '// iOS:') + '\nthis.ensure = ensureCtx;', scope);
+  assert.doesNotThrow(() => scope.ensure());
+  assert.equal(scope.ensure(), ctx);
+});
+
+test('IOS09 unchanged speed rebuild does not reconfigure time stretching', () => {
+  let writes = 0;
+  const audio = { get playbackRate() { return .85; }, set playbackRate(x) { writes++; },
+    get preservesPitch() { return true; }, set preservesPitch(x) { writes++; },
+    get webkitPreservesPitch() { return true; }, set webkitPreservesPitch(x) { writes++; } };
+  const nodes = { speedPresets: { children: [] } };
+  const scope = { au: audio, learning: false, map: { rate: .85 }, $: id => nodes[id] ||= {}, applyMap() {} };
+  vm.createContext(scope);
+  vm.runInContext(extract('function setSpeed(', "\n$('btnSpeed')") + '\nsetSpeed(85, false);', scope);
+  assert.equal(writes, 0);
+});
+
+test('IOS10 count-in requests media play synchronously before the timer', () => {
+  let inTap = true, requested = false, scheduled;
+  const au = { paused: true, muted: false, playbackRate: 1, currentTime: 0,
+    play() { requested = inTap; return Promise.resolve(); }, pause() { this.paused = true; } };
+  const scope = { au, ensureCtx() {}, videoSession: null, countInTimer: null, clickOn: true,
+    lay: { counts: [{ time: 0, end: .5, count: 1 }, { time: .5, count: 2 }] },
+    clickState: { nextIdx: 0 }, map: { accent: 'OFF' }, lag: { click: 0 }, prefs: { cueVol: 100 },
+    primeMedia, engine: { countIn: () => 2 }, setTimeout: fn => { scheduled = fn; return 1; }, startPlayback() {} };
+  vm.createContext(scope);
+  vm.runInContext(extract('function play()', "\n$('btnPlay')") + '\nplay();', scope); inTap = false;
+  assert.equal(requested, true, 'first play must not wait for the count-in timer');
+  assert.equal(typeof scheduled, 'function'); assert.equal(au.paused, true);
+});
+
+import * as iosVideo from '../audio/video.js';
+import { startListening } from '../ui/listen.js';
+
+function nativeRecoveryScope(doc, audio) {
+  const nodes = { au: audio };
+  const scope = { document: doc, au: audio, videoSession: null, $: id => nodes[id] ||= {},
+    reloadMedia: iosVideo.reloadMedia, resync() {}, loopOn: false, truthTaps: false, learning: true,
+    engine: { cancelPending() {} }, setTimeout: () => 0 };
+  vm.createContext(scope);
+  vm.runInContext(extract('function bindPlayback(', '\nbindPlayback(au);') + '\nbindPlayback(au);', scope);
+  return scope;
+}
+
+test('IOS11 native recovery also serves listen with the original element and context clock', async () => {
+  const previous = { document: globalThis.document, requestAnimationFrame: globalThis.requestAnimationFrame,
+    setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval };
+  const nodes = {}, root = { hidden: true, innerHTML: '', querySelector: key => nodes[key] ||= { style: {} } };
+  const doc = new EventTarget(); doc.hidden = false; doc.getElementById = () => root;
+  globalThis.document = doc; globalThis.requestAnimationFrame = () => 0;
+  let timer, lesson, loads = 0;
+  globalThis.setInterval = fn => { timer = fn; return 1; }; globalThis.clearInterval = () => {};
+  const audio = new ReplayMedia();
+  audio.load = () => { loads++; audio.currentTime = 0; audio.playbackRate = 1; };
+  nativeRecoveryScope(doc, audio);
+  const ctx = { currentTime: 10 }, clicks = [];
+  try {
+    lesson = startListening({ questions: [], demo: { aligned: { start: 3, end: 5, clicks: [{ time: 3, count: 1 }] } },
+      au: audio, ensureCtx: () => ctx, clickAt: when => clicks.push(when), lagClickMs: 20,
+      samples: new Float32Array(1), sr: 22050, onDone() {} });
+    doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+    doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange')); ctx.currentTime = 17;
+    nodes['#demoOk'].onclick(); await Promise.resolve(); timer();
+    assert.equal(loads, 1, 'listen must use the same native-audio recovery');
+    assert.equal(audio.currentTime, 3); assert.equal(audio.paused, false);
+    assert.deepEqual(clicks, [17.02], 'keep the captured context and schedule against its resumed clock');
+  } finally {
+    lesson?.stop();
+    Object.assign(globalThis, previous);
+  }
+});
+
+test('IOS12 native recovery preserves background playback and retries a failed load', async () => {
+  const doc = new EventTarget(); doc.hidden = false;
+  const audio = new ReplayMedia(); let loads = 0;
+  audio.load = () => { loads++; throw Error('device reload'); };
+  nativeRecoveryScope(doc, audio);
+  await audio.play(); audio.currentTime = 8;
+  doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+  doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange'));
+  await audio.play(); assert.equal(loads, 0, 'already playing music must remain uninterrupted');
+  audio.pause();
+  await assert.rejects(audio.play(), /device reload/);
+  assert.equal(audio.currentTime, 8); assert.equal(audio.paused, true);
+  audio.load = () => { loads++; audio.currentTime = 0; };
+  await audio.play();
+  assert.equal(loads, 2); assert.equal(audio.currentTime, 8); assert.equal(audio.paused, false);
+});
+
+test('IOS13 metadata-pending recovery aligns replacement before its first play request', async t => {
+  const e = iosEnv(t); await e.choose(); e.$('offsetLaterLarge').onclick();
+  e.v.currentTime = 12; e.m.currentTime = 2;
+  for (const el of [e.v, e.m]) {
+    const load = el.load;
+    el.load = function () { load.call(this); this.readyState = 0; };
+  }
+  const positions = [], play = e.m.play;
+  e.m.play = function () { positions.push(this.currentTime); return play.call(this); };
+  e.doc.hidden = true; e.doc.dispatchEvent(new Event('visibilitychange')); e.s.transport.pause();
+  e.doc.hidden = false;
+  await e.s.transport.play();
+  assert.deepEqual(positions, [11], 'do not start the replacement at its stale pre-background position');
+});
+
+test('IOS14 gain is connected before play, while ordinary playback stays direct', () => {
+  for (const method of ['gain', 'click']) {
+    const order = [];
+    const scope = { ensureCtx: () => order.push('ctx'), ensureMediaGraph: () => order.push('graph'),
+      map: { accent: 'EVEN' }, prefs: { accentMethod: method }, videoSession: {},
+      startPlayback: () => order.push('play') };
+    vm.createContext(scope);
+    vm.runInContext(extract('function play()', "\n$('btnPlay')") + '\nplay();', scope);
+    assert.deepEqual(order, method === 'gain' ? ['ctx', 'graph', 'play'] : ['ctx', 'play']);
+  }
+});
+

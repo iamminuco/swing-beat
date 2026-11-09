@@ -23,7 +23,7 @@ import { decodeToModelRate, MODEL_SR } from '../audio/decode.js';
 import { createClickEngine } from '../audio/click.js';
 import { isVideoFile, checkVideoSize } from '../core/video-sync.js';
 import { attachVideoZoom } from './video-zoom.js';
-import { hasVideoTrack, createVideoSession, primeMedia } from '../audio/video.js';
+import { hasVideoTrack, createVideoSession, primeMedia, reloadMedia } from '../audio/video.js';
 import { startGame } from './game.js';
 import { startBounce } from './bounce.js';
 import { startListening } from './listen.js';
@@ -115,7 +115,9 @@ function ensureCtx() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (dbg) audioCtx.onstatechange = () => dbg('소리엔진 ' + audioCtx.state);
   }
-  if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') audioCtx.resume().catch(() => {});
+  if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') {
+    try { Promise.resolve(audioCtx.resume()).catch(() => {}); } catch { /* media can still play directly */ }
+  }
   return audioCtx;
 }
 // iOS: 백그라운드에 갔다 오면 컨텍스트가 suspended로 남을 수 있다 — 화면·소리는 도는데
@@ -801,6 +803,22 @@ setInterval(() => {
 }, 25);
 
 function bindPlayback(el) {
+  if (el === $('au')) {
+    // All native-audio consumers (including listen/game) keep the same element.
+    let needsReload = false;
+    const nativePlay = el.play.bind(el);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) needsReload = true;
+    });
+    el.play = () => {
+      try {
+        if (needsReload && el.paused && !document.hidden) {
+          reloadMedia(el); needsReload = false;
+        }
+        return nativePlay();
+      } catch (err) { return Promise.reject(err); }
+    };
+  }
   const on = (event, fn) => el.addEventListener(event, e => { if (au === el) fn(e); });
 on('seeked', () => { if (!videoSession) resync(); if (loopOn) updateLoop(); }); // 옮겨 간 자리 기준으로 반복 구간을 다시 잡는다
 on('play', () => { $('btnPlay').textContent = '⏸'; if (!videoSession) resync(); if (loopOn) updateLoop(); });
@@ -842,6 +860,7 @@ function startPlayback() {
 }
 function play() {
   ensureCtx();
+  if (map?.accent === 'EVEN' && prefs.accentMethod === 'gain') ensureMediaGraph();
   if (videoSession) { startPlayback(); return; }
   if (countInTimer) return; // 카운트인 진행 중 — 재생 예약이 이미 있다
   if (clickOn && lay?.counts.length) {
@@ -854,6 +873,7 @@ function play() {
     const next = lay.counts[Math.min(i, lay.counts.length - 1) + 1];
     const interval = next ? next.time - c.time : (c.end - c.time) || 0.5;
     if (Math.abs(au.currentTime - c.time) > 0.005) au.currentTime = c.time;
+    primeMedia(au); // Audible permission is requested in this tap, before the count-in timer.
     const wait = engine.countIn(interval, au.playbackRate || 1,
       { lagClickMs: lag.click, accent: map.accent, volume: prefs.cueVol / 100 });
     countInTimer = setTimeout(() => { countInTimer = null; startPlayback(); }, wait * 1000);
@@ -1247,13 +1267,13 @@ $('speedPresets').innerHTML = PRESETS.map(v => `<button data-sp="${v}">${v}</but
 // 1%씩 −/+ 버튼(10/29 사용자 "버튼식으로 99, 98, 97 이렇게 1단위"). 누르고 있으면 계속 바뀌고, 손을 뗄 때 한 번만 저장한다.
 function setSpeed(pct, persist = true) {
   pct = Math.max(50, Math.min(100, Math.round(pct)));
-  au.playbackRate = pct / 100;
+  if (au.playbackRate !== pct / 100) au.playbackRate = pct / 100;
   // 음정 유지(preservesPitch)는 느린 재생에서 브라우저 타임스트레치가 "지지직"거린다(사용자 실보고 9/10·9/11).
   // 박자 잡기 기본이 85%라 pct>=85 조건으론 시작하자마자 깨졌다 → 학습 중엔 음정유지를 아예 끈다
   // (연습은 박자만 필요·음정 무관, 100%면 어차피 무영향). 일반 재생(learning=false)만 음정을 유지한다.
   const keepPitch = !learning;
-  au.preservesPitch = keepPitch;
-  au.webkitPreservesPitch = keepPitch;
+  if (au.preservesPitch !== keepPitch) au.preservesPitch = keepPitch;
+  if (au.webkitPreservesPitch !== keepPitch) au.webkitPreservesPitch = keepPitch;
   $('speedDown').disabled = pct <= 50; $('speedUp').disabled = pct >= 100;
   $('speedBig').innerHTML = `${pct}<span>%</span>`;
   $('speedLabel').textContent = pct + '%';

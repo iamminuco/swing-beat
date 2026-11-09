@@ -21,7 +21,8 @@ export function primeMedia(el) {
   if (!el.paused) return;
   const muted = el.muted, position = el.currentTime;
   try {
-    el.muted = true;
+    // Muted playback does not request permission for later audible playback.
+    el.muted = false;
     Promise.resolve(el.play()).catch(() => {});
   } catch { /* A rejected warm-up must not block opening or playback. */ }
   finally {
@@ -29,6 +30,15 @@ export function primeMedia(el) {
     el.muted = muted;
     if (Number.isFinite(position) && el.currentTime !== position) el.currentTime = position;
   }
+}
+// Call before play(), in the same gesture. Setting currentTime at HAVE_NOTHING
+// supplies the default playback start position; do not defer play to metadata.
+export function reloadMedia(el, time = el.currentTime) {
+  const position = Number.isFinite(time) ? Math.max(0, time) : 0;
+  const rate = el.playbackRate;
+  el.load();
+  el.currentTime = position;
+  if (el.playbackRate !== rate) el.playbackRate = rate;
 }
 const graphs = new WeakMap();
 export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onChange, onClockChange, ensureCtx }) {
@@ -51,7 +61,7 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
   let videoFeatures = null, followerEpoch = 0, playEpoch = 0;
   let attempts = 0, trim = 0, followerBlocked = false, touchBlocked = false, over = 0, recommendation = null;
   const tolerance = 0.030;
-  let startCheck = null;
+  let startCheck = null, needsReload = false;
   // A seek issued while the video plays aims ahead by (seek time + resume delay), each the smallest of its last 3 measurements,
   // so one slow seek or slow resume cannot make later seeks overshoot. Seek time = seek call to 'seeked'.
   // Resume delay = 'seeked' until the music clock actually moves (some devices keep the clock still for 100+ ms after a seek).
@@ -216,22 +226,41 @@ export function createVideoSession({ $, blob, pcm, videoMap, analyzeMusic, onCha
     addEventListener(...args) { v.addEventListener(...args); listeners.push([v, ...args]); },
     pause() { playEpoch++; v.pause(); stopFollower(); resetGain(); },
     play() {
-      ensureCtx();
       if (dead) return Promise.reject(new Error('동영상이 닫혔어요'));
-      const epoch = ++playEpoch;
-      waiting = false; realign(); resetRate(); resetGain();
-      v.muted = musicOn;
-      if (musicOn && replacement) primeMedia(music);
-      const vp = v.play();
-      sync(true);
-      return Promise.resolve(vp).then(() => {
-        if (!dead && epoch === playEpoch) sync(true);
-      }).catch(err => {
-        if (dead || epoch !== playEpoch) return;
-        failed(err); throw err;
-      });
+      ensureCtx();
+      let epoch;
+      try {
+        if (needsReload && !document.hidden) {
+          reloadMedia(v);
+          if (replacement) reloadMedia(music, musicPosition(v.currentTime, replacement.m.song.duration, fit).time);
+          needsReload = false;
+        }
+        epoch = ++playEpoch;
+        waiting = false; realign(); resetRate(); resetGain();
+        v.muted = musicOn;
+        const active = musicOn && replacement &&
+          musicPosition(v.currentTime, replacement.m.song.duration, fit).active;
+        if (musicOn && replacement && !active) primeMedia(music);
+        const vp = v.play();
+        sync(true);
+        // Seeking/waiting can make sync defer the follower until after the tap.
+        // Request the actual audible start now, without a warmup pause.
+        if (active && !document.hidden) { music.muted = false; playFollower(); }
+        return Promise.resolve(vp).then(() => {
+          if (!dead && epoch === playEpoch) sync(true);
+        }).catch(err => {
+          if (dead || epoch !== playEpoch) return;
+          failed(err); throw err;
+        });
+      } catch (err) {
+        failed(err);
+        return Promise.reject(err);
+      }
     },
   };
+  if (document.addEventListener) on(document, 'visibilitychange', () => {
+    if (document.hidden) needsReload = true;
+  });
   on(v, 'pause', () => { playEpoch++; stopFollower(); resetGain(); });
   on(v, 'seeking', () => { playEpoch++; realign(); stopFollower(); resetGain(); onClockChange(); });
   on(v, 'seeked', () => { sync(true); onClockChange(); });
