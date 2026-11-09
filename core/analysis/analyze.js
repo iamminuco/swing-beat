@@ -6,7 +6,8 @@ import { inspectSignal } from './signal.js';
 //   1 = 첫 다운비트 앵커(9/7) · 2 = 다운비트 최빈 위상 투표(9/10) · 3 = 글리치 박 필터 + 템포 증거 게이트(9/11)
 //   4 = 220 BPM 초과 옥타브 주의 경고(9/11 밤) — 경고만 바뀌어도 저장곡이 다시 받도록 올린다(codex 7차)
 //   5 = 곡별 구조 추정(hints.js) 적용(9/12) — 저장곡도 열 때 추정을 받도록
-export const GRID_ENGINE = 5;
+//   6 = 정속 곡의 놓친 박 채우기(fillSteadyGaps, 11/09) — 저장곡도 열 때 다시 분석해 1~8 카운트 어긋남을 고치도록
+export const GRID_ENGINE = 6;
 
 function median(values) {
   if (!values.length) return null;
@@ -35,6 +36,89 @@ function dropImplausibleBeats(beats) {
     else dropped += 1;
   }
   return { beats: kept, dropped };
+}
+
+// 놓친 박 채우기 — 정속 곡에서 모델이 박을 건너뛴 격자 칸에만 합성 박을 넣는다. 2026-09-11엔 '간격 2~4배면 채움'을 단순 적용해
+// GTZAN 83곡 A4 4곡↑ 4곡↓(상쇄), 수업곡 후보 5개 전부 곡 끝 리타르단도(점점 느려지는 중 간격이 우연히 2배 근처)였다.
+// 그래서 간격 하나가 아니라 '그 주변 박들이 한 줄(정속 격자) 위에 있는가'를 본다. 2026-11-09 실측(수업곡 twist.wav, 3분 22초):
+// 앞 20초는 한 박 건너 검출, 곳곳에서 1~2개 누락 합 ≈60개 — 박이 빠질 때마다 뒤 모든 1~8 카운트가 한 칸 밀렸다.
+// 그 곡의 박은 전부 주기 0.353초 직선 하나(전곡 잔차 rms 0.018초) 위에 있었다.
+//  1) 기준 주기 P = 간격 중앙값 ±25% 안 간격들의 중앙값(그런 간격이 절반 미만이면 포기).
+//  2) 박마다 격자 칸 번호 = 앞 칸 + round(간격/국소 주기), 국소 주기 = ±12간격 안 정상 간격(P±12%+20ms)의 중앙값(3개 미만이면 P).
+//  3) 박 ±24개 창에서 (칸 번호 → 시각) 직선을 맞추고(0.25P 넘는 이탈 박은 빼고 다시) 박마다 잔차를 잰다.
+//     정상 박 = 잔차 ≤ 0.2P + 20ms(모델 박은 20ms 단위). 곡 전체 게이트: 정상 박 ≥ 85%, 빈 칸 ≤ 전체 칸의 25%.
+//     템포 변화·루바토 곡은 박이 직선에서 벗어나 게이트를 못 넘는다.
+//  4) 빈 칸 구간(k-1개, k=2..3)은 양옆 박과 바깥 3개씩이 모두 정상(잔차 ≤ 0.3P+20ms)이고, 그 구간과 바로 앞·뒤 간격이 각각
+//     (칸 수 × 국소 주기)의 ±(0.3P+20ms) 안이며, 마지막 2간격이 아닐 때만 채운다. 곡 끝 16박 안에서는 0.3P 대신 0.2P.
+//     리타르단도는 간격이 연달아 커져 직선·칸 수 배수에서 벗어나므로(점점 느려지는 동안 잔차가 쌓인다) 막힌다. 곡 앞쪽(한 박 건너 검출) 구간은 앞 박이 없어도 허용.
+// 합성 박은 그 창 직선 위의 점. 모델 박·다운비트는 그대로 둔다(다운비트는 박의 부분집합 유지).
+const FILL_NEAR = 0.25, FILL_MIN_BEATS = 24, FILL_CLEAN = 0.12, FILL_QUANT = 0.02, FILL_WINDOW = 12;
+const FILL_FIT = 24, FILL_ON = 0.2, FILL_LOCAL = 0.3, FILL_REJECT = 0.25, FILL_K_MAX = 3, FILL_GUARD = 3;
+const FILL_MIN_ON = 0.85, FILL_MAX_EMPTY = 0.25, FILL_TAIL = 16;
+function lineFit(xs, ys) { // 최소제곱 직선 {a, b}: y = a + b·x
+  const n = xs.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+  const den = n * sxx - sx * sx;
+  if (!(den > 0)) return null;
+  const b = (n * sxy - sx * sy) / den;
+  return { a: (sy - b * sx) / n, b };
+}
+function fillSteadyGaps(beats) {
+  const none = { beats, filled: 0 };
+  if (beats.length < FILL_MIN_BEATS) return none;
+  const gaps = intervals(beats), med0 = median(gaps);
+  if (!(med0 > 0)) return none;
+  const near = gaps.filter(d => Math.abs(d / med0 - 1) <= FILL_NEAR);
+  if (near.length < gaps.length / 2) return none;
+  const P = median(near);
+  const clean = gaps.map(d => Math.abs(d - P) <= FILL_CLEAN * P + FILL_QUANT);
+  const idx = [0];
+  for (let i = 0; i < gaps.length; i++) {
+    const local = [];
+    for (let j = Math.max(0, i - FILL_WINDOW); j <= Math.min(gaps.length - 1, i + FILL_WINDOW); j++) if (clean[j]) local.push(gaps[j]);
+    const Pl = local.length >= 3 ? median(local) : P;
+    idx.push(idx[i] + Math.max(1, Math.round(gaps[i] / Pl)));
+  }
+  const slots = idx[idx.length - 1] + 1;
+  if (slots - beats.length > FILL_MAX_EMPTY * slots) return none;
+  // 박마다 국소 직선(창 안 이탈 박 제외 재적합)과 잔차
+  const fits = [], resid = [];
+  for (let i = 0; i < beats.length; i++) {
+    const lo = Math.max(0, i - FILL_FIT), hi = Math.min(beats.length, i + FILL_FIT + 1);
+    const xs = idx.slice(lo, hi), ys = beats.slice(lo, hi);
+    let fit = lineFit(xs, ys);
+    if (fit) {
+      const keep = xs.map((x, j) => Math.abs(ys[j] - (fit.a + fit.b * x)) <= FILL_REJECT * P);
+      if (keep.filter(Boolean).length >= 5) fit = lineFit(xs.filter((_, j) => keep[j]), ys.filter((_, j) => keep[j])) ?? fit;
+    }
+    fits.push(fit);
+    resid.push(fit ? beats[i] - (fit.a + fit.b * idx[i]) : Infinity);
+  }
+  const tight = FILL_ON * P + FILL_QUANT, tol = FILL_LOCAL * P + FILL_QUANT;
+  if (resid.filter(r => Math.abs(r) <= tight).length < FILL_MIN_ON * beats.length) return none;
+  const out = [beats[0]];
+  let filled = 0;
+  for (let i = 0; i + 1 < beats.length; i++) {
+    const k = idx[i + 1] - idx[i];
+    // 곡 끝 FILL_TAIL박 안에서는 엄격한 잔차(0.2P)만 인정 — 끝 리타르단도·엔딩 태그가 느슨한 잔차에 섞이는 걸 막는다.
+    const lim = beats.length - i <= FILL_TAIL ? tight : tol;
+    let ok = k >= 2 && k <= FILL_K_MAX && i + 1 <= beats.length - 3 && fits[i] !== null;
+    // 빈 구간과 바로 앞·뒤 간격이 모두 (칸 수 × 국소 주기)의 ±lim 안 — 간격이 연달아 커지는 리타르단도는 여기서 걸린다
+    for (let j = Math.max(0, i - 1); ok && j <= Math.min(beats.length - 2, i + 1); j++) {
+      if (Math.abs(beats[j + 1] - beats[j] - (idx[j + 1] - idx[j]) * fits[i].b) > lim) ok = false;
+    }
+    for (let j = Math.max(0, i - FILL_GUARD + 1); ok && j <= Math.min(beats.length - 1, i + FILL_GUARD); j++) if (Math.abs(resid[j]) > lim) ok = false;
+    if (ok) {
+      const fit = fits[i], add = [];
+      for (let m = 1; m < k; m++) add.push(fit.a + fit.b * (idx[i] + m));
+      // 양옆 박 사이에서 간격이 0.5P 이상 유지될 때만(깨지면 이 구간은 건드리지 않는다)
+      const seq = [beats[i], ...add, beats[i + 1]];
+      if (seq.every((t, j) => j === 0 || t - seq[j - 1] >= 0.5 * P)) { out.push(...add); filled += add.length; }
+    }
+    out.push(beats[i + 1]);
+  }
+  return filled ? { beats: out, filled } : none;
 }
 
 // Display summary only. Never replace local beat times with this fitted line.
@@ -96,31 +180,38 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   }
   let beats = firstOnset === null ? [] : model.beats.filter(t => t >= firstOnset);
   const glitch = dropImplausibleBeats(beats);
-  beats = glitch.beats;
-  const retained = new Set(beats);
+  const modelBeats = glitch.beats; // 모델이 실제로 낸 박(글리치 제거 뒤) — 템포 두 배/절반 판정 증거는 채우기 전 이 박으로 잰다
+  const fill = fillSteadyGaps(modelBeats);
+  beats = fill.beats;
+  const retained = new Set(modelBeats);
   const downbeats = model.downbeats.filter(t => retained.has(t));
-  // 놓친 박 채우기(간격 2~4배에 합성 박)는 2026-09-11 실측으로 기각: GTZAN 83곡 A4 4곡↑ 4곡↓(상쇄),
-  // 수업곡 12곡의 후보 5개는 전부 곡 끝 리타르단도(206~266초)였고 중간 놓침은 0개였다. 넣지 마라.
-  const rawIntervals = intervals(beats), med = median(rawIntervals);
+  // 놓친 박 채우기: 위 fillSteadyGaps(정속 곡 한정). 간격 크기만 보는 단순 채우기는 2026-09-11 실측으로 기각됐다 — 그 규칙으로 되돌리지 마라.
+  // 순서: 템포 두 배/절반 판정(rawBpm·마디 2/8박 비율·커버리지)은 '채우기 전' 모델 박으로 잰다. 채운 박으로 재면 임계 근처 곡의
+  // 판정이 뒤집힌다(GTZAN classical 실측: 2곡이 채우기 2~4개로 두 배 판정이 켜지거나 꺼져 박 F 0.40→0.03·0.75→0.53).
+  // 마디 불규칙 비율·앞/뒤 템포·카운트 어긋남은 사용자가 보는 격자(채운 뒤)로 잰다.
+  const rawIntervals = intervals(modelBeats), med = median(rawIntervals);
   const rawBpm = med === null ? null : 60 / med;
   const warnings = [];
   if (glitch.dropped > 0) warnings.push('glitch_beats_removed');
-  const rawIndices = downbeats.map(t => beats.indexOf(t));
+  if (fill.filled > 0) warnings.push('missing_beats_filled');
+  const rawIndices = downbeats.map(t => modelBeats.indexOf(t));
   const bars = intervals(rawIndices);
+  const gridBars = intervals(downbeats.map(t => beats.indexOf(t)));
   const twoBeatRatio = bars.length ? bars.filter(n => n === 2).length / bars.length : null;
   const eightBeatRatio = bars.length ? bars.filter(n => n === 8).length / bars.length : null;
   if (twoBeatRatio > 0.4) warnings.push('possible_double_tempo');
   // 12-song reference run (2026-09-07): every real song has a stray non-4 bar
   // (clean songs 0.8~9%), while the three songs the user flagged as shaky bars
   // measured 18.7%/28.2%/47.4%. Warn on ratio, not on any single bar.
-  const irregularBarRatio = bars.length ? bars.filter(n => n !== 4).length / bars.length : null;
+  const irregularBarRatio = gridBars.length ? gridBars.filter(n => n !== 4).length / gridBars.length : null;
   if (irregularBarRatio > 0.15) warnings.push('bar_alignment_needs_review');
   // Same front/back 40-interval windows as the retained experiment. Require
   // disjoint windows; a very short clip cannot establish a tempo change.
   let frontBpm = null, backBpm = null;
-  if (rawIntervals.length >= 80) {
-    frontBpm = 60 / median(rawIntervals.slice(0, 40));
-    backBpm = 60 / median(rawIntervals.slice(-40));
+  const gridIntervals = intervals(beats);
+  if (gridIntervals.length >= 80) {
+    frontBpm = 60 / median(gridIntervals.slice(0, 40));
+    backBpm = 60 / median(gridIntervals.slice(-40));
     if (Math.max(frontBpm, backBpm) / Math.min(frontBpm, backBpm) >= 1.6) {
       warnings.push('tempo_changes_need_review');
     }
@@ -140,7 +231,7 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
   // 30%는 앞 30%에만 2박 마디가 있는 [0,2,…,30,100]을 못 막았다(codex 4차) → 50%. GTZAN 실측: 두 배가 맞는 곡의
   // 커버리지 0.76~0.94, 오발동 2곡은 0.50·0.93 — 임계로 오발동을 가를 수는 없고, 국소 오검출만 막는 가드다.
   const TEMPO_EVIDENCE = 0.6, TEMPO_MIN_BARS = 4, TEMPO_MIN_COVERAGE = 0.5;
-  const spanOf = n => beats.length > 1 ? n * bars.filter(b => b === n).length / (beats.length - 1) : 0;
+  const spanOf = n => modelBeats.length > 1 ? n * bars.filter(b => b === n).length / (modelBeats.length - 1) : 0;
   const twoBeatCoverage = spanOf(2), eightBeatCoverage = spanOf(8);
   let tempoFactor = 1;
   if (rawBpm !== null && rawBpm < 110 && rawBpm * 2 >= 110 && rawBpm * 2 <= 290 &&
@@ -155,8 +246,9 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
     // 첫 마디가 9박인 곡에서 다운비트 12개 중 11개를 버렸다(codex 2026-09-11, 옛 테스트가 그 위험을 보여주고 있었다).
     tempoFactor = 0.5;
     warnings.push('tempo_halved');
-    const odd = rawIndices.filter(i => i % 2 === 1).length;
-    const parity = odd > rawIndices.length - odd ? 1 : 0; // 동률이면 짝수(첫 박 보존)
+    const gridIdx = downbeats.map(t => beats.indexOf(t)); // 살릴 홀/짝은 채운 격자의 인덱스로 센다(채우면 뒤 인덱스가 밀린다)
+    const odd = gridIdx.filter(i => i % 2 === 1).length;
+    const parity = odd > gridIdx.length - odd ? 1 : 0; // 동률이면 짝수(첫 박 보존)
     beats = beats.filter((_, i) => i % 2 === parity);
   } else if (rawBpm !== null && (rawBpm < 110 || rawBpm > 290)) {
     warnings.push('tempo_out_of_range');
@@ -211,7 +303,7 @@ export function buildGrid(model, { sr, duration, firstOnset }) {
     bpm: fittedBpm(beats),
     tempoCurve: local.map((dt, i) => ({ time: beats[i], bpm: 60 / dt })),
     tempoFactor, diagnostics: {
-      rawBpm, frontBpm, backBpm, twoBeatRatio, eightBeatRatio, twoBeatCoverage, eightBeatCoverage, irregularBarRatio,
+      filledBeats: fill.filled, rawBpm, frontBpm, backBpm, twoBeatRatio, eightBeatRatio, twoBeatCoverage, eightBeatCoverage, irregularBarRatio,
       misalignedDownbeatRatio, firstDriftTime, warnings,
     },
   };
